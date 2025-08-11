@@ -1,0 +1,30 @@
+from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+from uuid import UUID
+from typing import Optional
+
+from app.core.entities.user import AuthProvider
+
+
+class UserResponse(BaseModel):
+    id: UUID
+    email: EmailStr
+    full_name: Optional[str]
+    is_verified: bool
+    auth_provider: AuthProvider
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(..., max_length=255)
