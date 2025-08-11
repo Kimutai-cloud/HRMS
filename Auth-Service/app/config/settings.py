@@ -19,11 +19,18 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
     
-    RESEND_API_KEY: str
-    FROM_EMAIL: str = "noreply@dev.com"
+    # Email service - SMTP Configuration
+    MAIL_USERNAME: str 
+    MAIL_PASSWORD: str 
+    MAIL_FROM: str 
+    MAIL_FROM_NAME: str 
+    MAIL_PORT: int = 587  
+    MAIL_SERVER: str = "smtp.gmail.com" 
+    MAIL_TLS: bool = True
+    MAIL_SSL: bool = False
     
     # Frontend
-    FRONTEND_URL: str = "http://localhost:5173"  
+    FRONTEND_URL: str = "http://localhost:3000"  
     
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",      

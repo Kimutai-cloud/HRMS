@@ -10,7 +10,7 @@ from app.infrastructure.database.repositories.user_repository import UserReposit
 from app.infrastructure.database.repositories.token_repository import TokenRepository
 from app.infrastructure.security.jwt_handler import JWTHandler
 from app.infrastructure.security.password_hasher import PasswordHasher
-from app.infrastructure.external.resend_client import ResendEmailService
+from app.infrastructure.external.fastapi_mail_service import FastAPIMailService
 from app.infrastructure.external.google_client import GoogleAuthService
 from app.application.use_case.auth_use_cases import AuthUseCase
 from app.application.use_case.user_use_cases import UserUseCase
@@ -38,8 +38,8 @@ def get_token_service() -> JWTHandler:
     return JWTHandler()
 
 
-def get_email_service() -> ResendEmailService:
-    return ResendEmailService()
+def get_email_service() -> FastAPIMailService:
+    return FastAPIMailService()
 
 
 def get_google_auth_service() -> GoogleAuthService:
@@ -61,7 +61,7 @@ def get_auth_use_case(
     token_repository: TokenRepository = Depends(get_token_repository),
     password_service: PasswordHasher = Depends(get_password_service),
     token_service: JWTHandler = Depends(get_token_service),
-    email_service: ResendEmailService = Depends(get_email_service),
+    email_service: FastAPIMailService = Depends(get_email_service),
     google_auth_service: GoogleAuthService = Depends(get_google_auth_service)
 ) -> AuthUseCase:
     return AuthUseCase(

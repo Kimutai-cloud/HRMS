@@ -66,18 +66,7 @@ async def root():
         "status": "running"
     }
 
-@app.options("/api/v1/{path:path}")
-async def handle_preflight(request: Request, path: str):
-    """
-    Explicit preflight handler for debugging CORS issues.
-    Remove this once CORS middleware is working properly.
-    """
-    if settings.DEBUG:
-        print(f"🔍 Received preflight request for path: /api/v1/{path}")
-        print(f"🔍 Origin: {request.headers.get('origin')}")
-        print(f"🔍 Method: {request.headers.get('access-control-request-method')}")
-    
-    return {}
+
 
 
 if __name__ == "__main__":

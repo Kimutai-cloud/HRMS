@@ -5,9 +5,9 @@ from app.core.interfaces.services import EmailServiceInterface
 from app.config.settings import settings
 
 
-class ResendEmailService(EmailServiceInterface):
+class MailerSendEmailService(EmailServiceInterface):
     def __init__(self):
-        self.api_key = settings.RESEND_API_KEY
+        self.api_key = settings.MAILERSEND_API_KEY
         self.from_email = settings.FROM_EMAIL
         self.base_url = "https://api.mailersend.com/v1/email"
         self.frontend_url = settings.FRONTEND_URL
@@ -81,9 +81,18 @@ class ResendEmailService(EmailServiceInterface):
             "Content-Type": "application/json"
         }
         
+        # MailerSend API format
         payload = {
-            "from": self.from_email,
-            "to": [to_email],
+            "from": {
+                "email": self.from_email,
+                "name": "Your App Name"
+            },
+            "to": [
+                {
+                    "email": to_email,
+                    "name": to_email.split('@')[0]  # Use email prefix as name
+                }
+            ],
             "subject": subject,
             "html": html_content
         }
@@ -96,8 +105,12 @@ class ResendEmailService(EmailServiceInterface):
                     json=payload,
                     timeout=30.0
                 )
-                return response.status_code == 200
+                
+                if response.status_code != 200:
+                    print(f"MailerSend API error: {response.status_code} - {response.text}")
+                    return False
+                    
+                return True
         except Exception as e:
             print(f"Email sending failed: {e}")
             return False
-

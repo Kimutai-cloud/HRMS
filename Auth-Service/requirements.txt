@@ -1,0 +1,46 @@
+# FastAPI Authentication Service Requirements
+# Core Framework
+fastapi==0.116.1
+uvicorn[standard]==0.32.1
+starlette==0.44.0
+
+# Database & ORM
+sqlalchemy==2.0.35
+alembic==1.16.4
+asyncpg==0.30.0
+
+# Security & Authentication
+PyJWT==2.10.1
+passlib[argon2]==1.7.4
+argon2-cffi==25.1.0
+bcrypt==4.3.0
+
+# Email Services
+fastapi-mail==1.4.1
+httpx==0.28.1
+
+# Data Validation & Settings
+pydantic==2.11.7
+pydantic-settings==2.10.1
+email-validator==2.2.0
+
+# Configuration & Environment
+python-decouple==3.8
+python-dotenv==1.1.1
+
+# CORS & Middleware
+fastapi-cors==0.0.6
+
+# Logging
+colorama==0.4.6
+
+# Development & Testing
+pytest==8.4.1
+pytest-asyncio==1.1.0
+
+# Google OAuth (if needed)
+google-auth==2.40.3
+requests==2.32.3
+
+# Additional Utilities
+typing-extensions==4.12.2

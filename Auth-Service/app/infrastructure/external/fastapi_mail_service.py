@@ -1,15 +1,24 @@
-import httpx
 from typing import Optional
-
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from app.core.interfaces.services import EmailServiceInterface
 from app.config.settings import settings
 
 
-class ResendEmailService(EmailServiceInterface):
+class FastAPIMailService(EmailServiceInterface):
     def __init__(self):
-        self.api_key = settings.RESEND_API_KEY
-        self.from_email = settings.FROM_EMAIL
-        self.base_url = "https://api.mailersend.com/v1/email"
+        self.conf = ConnectionConfig(
+            MAIL_USERNAME=settings.MAIL_USERNAME,
+            MAIL_PASSWORD=settings.MAIL_PASSWORD,
+            MAIL_FROM=settings.MAIL_FROM,
+            MAIL_PORT=settings.MAIL_PORT,
+            MAIL_SERVER=settings.MAIL_SERVER,
+            MAIL_FROM_NAME=settings.MAIL_FROM_NAME,
+            MAIL_TLS=settings.MAIL_TLS,
+            MAIL_SSL=settings.MAIL_SSL,
+            USE_CREDENTIALS=True,
+            VALIDATE_CERTS=True
+        )
+        self.fast_mail = FastMail(self.conf)
         self.frontend_url = settings.FRONTEND_URL
     
     async def send_verification_email(self, email: str, token: str) -> bool:
@@ -76,28 +85,17 @@ class ResendEmailService(EmailServiceInterface):
         )
     
     async def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "from": self.from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content
-        }
-        
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.base_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=30.0
-                )
-                return response.status_code == 200
+            message = MessageSchema(
+                subject=subject,
+                recipients=[to_email],
+                body=html_content,
+                subtype="html"
+            )
+            
+            await self.fast_mail.send_message(message)
+            return True
+            
         except Exception as e:
             print(f"Email sending failed: {e}")
             return False
-
