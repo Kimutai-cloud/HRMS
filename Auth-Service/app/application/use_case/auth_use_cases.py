@@ -1,3 +1,5 @@
+# Replace: Auth-Service/app/application/use_case/auth_use_cases.py
+
 from uuid import uuid4
 from datetime import datetime
 
@@ -30,6 +32,11 @@ from app.application.dto.auth_dto import (
 from app.application.dto.user_dto import AuthResponse, UserResponse
 
 
+class EmailServiceException(Exception):
+    """Raised when email service fails."""
+    pass
+
+
 class AuthUseCase:
     """Authentication use cases."""
     
@@ -57,6 +64,10 @@ class AuthUseCase:
         if existing_user:
             raise UserAlreadyExistsException("User with this email already exists")
         
+        # Validate password strength
+        if len(request.password) < 8:
+            raise InvalidCredentialsException("Password must be at least 8 characters long")
+        
         # Create new user
         hashed_password = self.password_service.hash_password(request.password)
         user = User(
@@ -70,12 +81,41 @@ class AuthUseCase:
             updated_at=datetime.utcnow()
         )
         
-        # Save user
-        created_user = await self.user_repository.create(user)
+        # CRITICAL: Only save user AFTER email is successfully sent
+        # First, try to send verification email
+        verification_token = self.token_service.create_email_verification_token(user)
         
-        # Send verification email
-        verification_token = self.token_service.create_email_verification_token(created_user)
-        await self.email_service.send_verification_email(created_user.email, verification_token)
+        try:
+            email_sent = await self.email_service.send_verification_email(
+                user.email, 
+                verification_token
+            )
+            
+            if not email_sent:
+                raise EmailServiceException(
+                    "Failed to send verification email. Please check your email configuration."
+                )
+                
+        except Exception as e:
+            # Don't create user if email fails
+            raise EmailServiceException(
+                f"Failed to send verification email: {str(e)}. "
+                "Please check your email service configuration."
+            )
+        
+        # Only create user if email was sent successfully
+        try:
+            created_user = await self.user_repository.create(user)
+            print(f"✅ User created successfully: {created_user.email}")
+            print(f"📧 Verification email sent to: {created_user.email}")
+            
+        except Exception as e:
+            # If user creation fails after email was sent, log this issue
+            print(f"❌ Critical: Email sent but user creation failed: {e}")
+            raise Exception(
+                "Account creation failed after sending verification email. "
+                "Please contact support if you received a verification email."
+            )
         
         return UserResponse(
             id=created_user.id,
@@ -103,7 +143,10 @@ class AuthUseCase:
         
         # Check if email is verified
         if not user.is_verified:
-            raise EmailNotVerifiedException("Email not verified")
+            raise EmailNotVerifiedException(
+                "Please verify your email address before logging in. "
+                "Check your inbox for the verification email."
+            )
         
         # Create tokens
         token_pair = self.token_service.create_token_pair(user)
@@ -150,8 +193,11 @@ class AuthUseCase:
                 )
                 user = await self.user_repository.create(user)
                 
-                # Send welcome email
-                await self.email_service.send_welcome_email(user.email, user.full_name or "User")
+                # Send welcome email (non-blocking - don't fail if email fails)
+                try:
+                    await self.email_service.send_welcome_email(user.email, user.full_name or "User")
+                except Exception as e:
+                    print(f"⚠️  Welcome email failed (non-critical): {e}")
             
             # Create tokens
             token_pair = self.token_service.create_token_pair(user)
@@ -215,7 +261,7 @@ class AuthUseCase:
         # Verify token
         token_data = self.token_service.verify_token(request.token)
         if not token_data:
-            raise TokenInvalidException("Invalid verification token")
+            raise TokenInvalidException("Invalid or expired verification token")
         
         user_id = token_data.get('sub')
         if not user_id:
@@ -233,8 +279,11 @@ class AuthUseCase:
         user.updated_at = datetime.utcnow()
         await self.user_repository.update(user)
         
-        # Send welcome email
-        await self.email_service.send_welcome_email(user.email, user.full_name or "User")
+        # Send welcome email (non-blocking)
+        try:
+            await self.email_service.send_welcome_email(user.email, user.full_name or "User")
+        except Exception as e:
+            print(f"⚠️  Welcome email failed (non-critical): {e}")
         
         return True
     
@@ -243,17 +292,26 @@ class AuthUseCase:
         
         user = await self.user_repository.get_by_email(request.email)
         if not user:
-            # Don't reveal that user doesn't exist
+            # Don't reveal that user doesn't exist - return success anyway
+            print(f"⚠️  Password reset requested for non-existent email: {request.email}")
             return True
         
         if not user.can_login_with_password():
-            # Don't send reset email for Google users
+            # Don't send reset email for Google users - return success anyway
+            print(f"⚠️  Password reset requested for Google user: {request.email}")
             return True
         
         # Create reset token and send email
         reset_token = self.token_service.create_password_reset_token(user)
-        await self.email_service.send_password_reset_email(user.email, reset_token)
         
+        try:
+            email_sent = await self.email_service.send_password_reset_email(user.email, reset_token)
+            if not email_sent:
+                print(f"❌ Failed to send password reset email to: {user.email}")
+        except Exception as e:
+            print(f"❌ Password reset email failed: {e}")
+        
+        # Always return True to prevent email enumeration
         return True
     
     async def reset_password(self, request: PasswordResetRequest) -> bool:
@@ -262,11 +320,15 @@ class AuthUseCase:
         # Verify token
         token_data = self.token_service.verify_token(request.token)
         if not token_data:
-            raise TokenInvalidException("Invalid reset token")
+            raise TokenInvalidException("Invalid or expired reset token")
         
         user_id = token_data.get('sub')
         if not user_id:
             raise TokenInvalidException("Invalid token payload")
+        
+        # Validate new password
+        if len(request.new_password) < 8:
+            raise InvalidCredentialsException("Password must be at least 8 characters long")
         
         # Get and update user
         user = await self.user_repository.get_by_id(user_id)
@@ -276,7 +338,6 @@ class AuthUseCase:
         if not user.can_login_with_password():
             raise InvalidCredentialsException("Cannot reset password for this user")
         
-        # Update password
         user.hashed_password = self.password_service.hash_password(request.new_password)
         user.updated_at = datetime.utcnow()
         await self.user_repository.update(user)

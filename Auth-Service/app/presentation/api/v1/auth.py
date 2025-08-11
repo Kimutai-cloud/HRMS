@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from app.application.use_case.auth_use_cases import AuthUseCase
+from app.application.use_case.auth_use_cases import AuthUseCase, EmailServiceException
 from app.application.dto.auth_dto import (
     RegisterUserRequest,
     LoginRequest,
@@ -49,10 +49,30 @@ async def register(
         )
         user = await auth_use_case.register_user(dto)
         return user
+        
     except UserAlreadyExistsException as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except EmailServiceException as e:
+        # Email service failed - return specific error
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
+    except InvalidCredentialsException as e:
+        # Password validation failed
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log unexpected errors
+        print(f"❌ Unexpected registration error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed due to an internal error. Please try again later."
         )
 
 
@@ -121,11 +141,11 @@ async def verify_email(
     try:
         dto = EmailVerificationRequest(token=request.token)
         success = await auth_use_case.verify_email(dto)
-        return SuccessResponse(message="Email verified successfully")
+        return SuccessResponse(message="Email verified successfully! You can now log in.")
     except (TokenInvalidException, UserNotFoundException) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid verification token"
+            detail="Invalid or expired verification token"
         )
 
 
@@ -137,7 +157,9 @@ async def forgot_password(
     """Send password reset email."""
     dto = ForgotPasswordRequest(email=request.email)
     await auth_use_case.forgot_password(dto)
-    return SuccessResponse(message="If the email exists, a reset link has been sent")
+    return SuccessResponse(
+        message="If an account with that email exists, a password reset link has been sent."
+    )
 
 
 @router.post("/reset-password", response_model=SuccessResponse)
@@ -149,9 +171,14 @@ async def reset_password(
     try:
         dto = PasswordResetRequest(token=request.token, new_password=request.new_password)
         success = await auth_use_case.reset_password(dto)
-        return SuccessResponse(message="Password reset successfully")
-    except (TokenInvalidException, UserNotFoundException, InvalidCredentialsException) as e:
+        return SuccessResponse(message="Password reset successfully! Please log in with your new password.")
+    except (TokenInvalidException, UserNotFoundException) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid reset token or operation not allowed"
+            detail="Invalid or expired reset token"
+        )
+    except InvalidCredentialsException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
         )

@@ -26,20 +26,22 @@ class Settings(BaseSettings):
     MAIL_FROM_NAME: str 
     MAIL_PORT: int = 587  
     MAIL_SERVER: str = "smtp.gmail.com" 
-    MAIL_TLS: bool = True
-    MAIL_SSL: bool = False
+    MAIL_STARTTLS: bool = True
+    MAIL_SSL_TLS: bool = False
     
-    # Frontend
     FRONTEND_URL: str = "http://localhost:3000"  
     
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",      
-        "http://localhost:5173",     
-        "http://127.0.0.1:3000",      
+        "http://localhost:5173",      
+        "http://127.0.0.1:3000",     
         "http://127.0.0.1:5173",      
         "http://localhost:8080",      
         "http://127.0.0.1:8080",      
+        "http://host.docker.internal:3000",  
+        "http://host.docker.internal:5173",  
     ]
+    
     # Logging
     LOG_LEVEL: str = "INFO"
     

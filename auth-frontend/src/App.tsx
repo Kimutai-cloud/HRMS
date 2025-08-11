@@ -1,12 +1,19 @@
-
 import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import NotificationContainer from './components/NotificationContainer';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import Dashboard from './components/auth/Dashboard';
+
+// Background options
+const backgroundOptions = {
+  pattern: 'bg-pattern',
+  gradient: 'bg-gradient-to-br from-[#F5F7FA] via-white to-[#F5F7FA]',
+  image: 'url(/background.jpg)',
+  solid: 'bg-[#F5F7FA]'
+};
 
 const AuthenticatedContent: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -17,7 +24,7 @@ const AuthenticatedContent: React.FC = () => {
       <div className="flex justify-center items-center min-h-96">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-[#1E88E5] mx-auto mb-4" />
-          <p className="text-[#9E9E9E]">Loading...</p>
+          <p className="text-[#9E9E9E] font-medium">Loading...</p>
         </div>
       </div>
     );
@@ -28,51 +35,41 @@ const AuthenticatedContent: React.FC = () => {
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      {isLogin ? (
-        <LoginForm onSwitchToRegister={() => setIsLogin(false)} />
-      ) : (
-        <RegisterForm onSwitchToLogin={() => setIsLogin(true)} />
-      )}
+    <div className="flex justify-end pr-8">
+      <div className="w-full max-w-2xl"> {}
+        {isLogin ? (
+          <LoginForm onSwitchToRegister={() => setIsLogin(false)} />
+        ) : (
+          <RegisterForm onSwitchToLogin={() => setIsLogin(true)} />
+        )}
+      </div>
     </div>
   );
 };
 
 const App: React.FC = () => {
+
   return (
     <NotificationProvider>
       <AuthProvider>
-        <div className="min-h-screen bg-gradient-to-br from-[#F5F7FA] via-white to-[#F5F7FA]">
+        <div className="min-h-screen relative bg-cover bg-center bg-no-repeat" 
+             style={{ backgroundImage: backgroundOptions.image }}>
           <NotificationContainer />
           
-          {/* Header */}
-          <header className="bg-white shadow-sm border-b border-gray-100">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between items-center h-16">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-[#1E88E5] rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-lg">H</span>
-                  </div>
-                  <h1 className="text-xl font-bold text-[#212121]">HRMS</h1>
-                </div>
-                <div className="text-sm text-[#9E9E9E]">
-                  Human Resource Management System
-                </div>
-              </div>
-            </div>
-          </header>
-
           {/* Main Content */}
-          <main className="container mx-auto px-4 py-8">
+          <main className="container mx-auto px-4 py-12">
             <AuthenticatedContent />
           </main>
 
           {/* Footer */}
-          <footer className="bg-white border-t border-gray-100 mt-auto">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              <div className="text-center text-[#9E9E9E] text-sm">
-                <p>&copy; 2024 HRMS. All rights reserved.</p>
-                <p className="mt-1">Built with modern web technologies</p>
+          <footer className="footer-glass mt-auto">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <div className="text-center">
+                <div className="flex justify-center items-center space-x-2 mb-3">
+                </div>
+                <p className="text-[#9E9E9E] text-sm mb-2">
+                  &copy; 2024 HRMS. All rights reserved.
+                </p>
               </div>
             </div>
           </footer>

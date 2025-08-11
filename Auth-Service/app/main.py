@@ -32,6 +32,28 @@ app = FastAPI(
 # Setup CORS
 setup_cors(app)
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Application startup event."""
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info(f"Debug mode: {settings.DEBUG}")
+    
+    if settings.DEBUG:
+        try:
+            logger.info("🔧 Auto-creating database tables...")
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from app.infrastructure.database.models import Base
+            
+            engine = create_async_engine(settings.DATABASE_URL)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            await engine.dispose()
+            
+            logger.info("✅ Database tables created successfully!")
+        except Exception as e:
+            logger.error(f"❌ Failed to create database tables: {e}")
+
 # Add exception handlers
 app.add_exception_handler(AuthException, auth_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -42,6 +64,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+
 
 
 @app.on_event("startup")

@@ -26,9 +26,9 @@ USER app
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check - FIXED: Use 0.0.0.0 instead of localhost
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD curl -f http://0.0.0.0:8000/api/v1/health || exit 1
 
-# Run application
+# FIXED: Run application on all interfaces, not just localhost
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
