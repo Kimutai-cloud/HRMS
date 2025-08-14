@@ -31,7 +31,6 @@ class FastAPIMailService(EmailServiceInterface):
             
         except Exception as e:
             print(f"❌ Email service initialization failed: {e}")
-            # For development, create a dummy service that doesn't actually send emails
             self.conf = None
             self.fast_mail = None
             self.frontend_url = settings.FRONTEND_URL

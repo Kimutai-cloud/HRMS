@@ -66,12 +66,12 @@ async def startup_event():
 async def seed_roles():
     """Seed initial roles if they don't exist."""
     try:
-        from app.infrastructure.database.connections import DatabaseConnection
+        from app.infrastructure.database.connections import db_connection
         from app.infrastructure.database.repositories.role_repository import RoleRepository
         from app.core.entities.role import Role, RoleCode
         from uuid import uuid4
         
-        async with DatabaseConnection().async_session() as session:
+        async with db_connection.async_session() as session:
             role_repo = RoleRepository(session)
             
             # Check if roles already exist
@@ -117,8 +117,8 @@ async def shutdown_event():
     logger.info("Shutting down Employee Service")
     
     try:
-        from app.infrastructure.database.connections import DatabaseConnection
-        await DatabaseConnection().close()
+        from app.infrastructure.database.connections import db_connection
+        await db_connection.close()
         logger.info("✅ Database connections closed")
     except Exception as e:
         logger.error(f"❌ Error closing database connections: {e}")

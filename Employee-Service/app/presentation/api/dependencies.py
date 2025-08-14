@@ -7,7 +7,7 @@ from typing import Optional
 from app.core.exceptions.employee_exceptions import EmployeePermissionException
 from app.core.exceptions.role_exceptions import UnauthorizedException, ForbiddenException
 from app.core.entities.user_claims import UserClaims
-from app.infrastructure.database.connections import DatabaseConnection
+from app.infrastructure.database.connections import db_connection
 from app.infrastructure.database.repositories.employee_repository import EmployeeRepository
 from app.infrastructure.database.repositories.role_repository import RoleRepository
 from app.infrastructure.database.repositories.event_repository import EventRepository

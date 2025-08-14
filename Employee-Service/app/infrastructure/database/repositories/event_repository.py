@@ -2,7 +2,7 @@ from typing import List
 from uuid import UUID
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_
+from sqlalchemy import select, update, delete, and_, or_, func, text, case, cast, asc, desc, null, not_
 
 from app.core.entities.events import DomainEvent
 from app.core.interfaces.repositories import EventRepositoryInterface

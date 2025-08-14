@@ -2,7 +2,7 @@ from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, or_, func, text, case, cast, asc, desc, null, not_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 

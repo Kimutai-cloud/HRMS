@@ -37,10 +37,14 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://hrms_user:hrms_password@postgres:5432/hrms_db
-
+      - JWT_SECRET_KEY=MY_SUPER_SECRET_KEY
+      - JWT_ALGORITHM=HS256
       - JWT_AUDIENCE=hrms-services
       - JWT_ISSUER=hrms-auth-service
-      - MAIL_USERNAME=kevin
+      - GOOGLE_CLIENT_ID=980394521691-1v0qlhhahpkent9r8efamdvbceq14bal.apps.googleusercontent.com
+      - GOOGLE_CLIENT_SECRET=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
+      - MAIL_USERNAME=kevin.kimu0306@gmail.com
+      - MAIL_PASSWORD=tvcx oncl bfqr zfde
       - MAIL_FROM=kevin.kimu0306@gmail.com
       - MAIL_FROM_NAME=HRMS
       - MAIL_PORT=587
@@ -74,9 +78,12 @@ services:
       - "8001:8001"
     environment:
       - DATABASE_URL=postgresql+asyncpg://hrms_user:hrms_password@postgres:5432/hrms_db
+      - JWT_SECRET_KEY=MY_SUPER_SECRET_KEY
+      - JWT_ALGORITHM=HS256
       - JWT_AUDIENCE=hrms-services
       - JWT_ISSUER=hrms-auth-service
       - AUTH_SERVICE_URL=http://auth-service:8000
+      - INTERNAL_SERVICE_TOKEN=MY_INTERNAL_SERVICE_TOKEN
       - DEBUG=true
       - LOG_LEVEL=INFO
       - SERVICE_PORT=8001
