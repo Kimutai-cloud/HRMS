@@ -2,7 +2,6 @@
 .env
 Auth-Service/.env
 
-# Docker compose (if you want to ignore it)
 Auth-Service/docker-compose.yml
 Employee-Service/docker-compose.yml
 docker-compose.yml
