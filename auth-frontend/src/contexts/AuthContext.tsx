@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       window.history.replaceState({}, document.title, window.location.pathname);
       alert("Email verified successfully! You can now log in.");
     } catch (error) {
-      alert("Email verification failed: " + (error instanceof Error ? error.message : "Unknown error"));
+      alert("Email verification failed, Please try again.");
     } finally {
       setLoading(false);
     }

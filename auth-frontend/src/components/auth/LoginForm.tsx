@@ -41,16 +41,16 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
     e.preventDefault();
     
     if (!validateForm()) {
-      showNotification('warning', 'Please fix the form errors before submitting.');
+      showNotification('warning', 'Please check your information and try again.');
       return;
     }
 
     try {
       showNotification('info', 'Signing you in...');
       await login(formData);
-      showNotification('success', 'Welcome back! You have been successfully signed in.');
+      showNotification('success', 'Welcome back! You\'ve been successfully signed in.');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Login failed. Please try again.';
+      const errorMessage = error instanceof Error ? error.message : 'Unable to sign you in. Please check your credentials and try again.';
       showNotification('error', errorMessage);
     }
   };
@@ -64,11 +64,11 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
   return (
     <Card>
       <div className="text-center mb-8">
-        <div className="w-16 h-16 bg-[#1E88E5] rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/25">
           <Lock className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-3xl font-bold text-[#212121] mb-2">Welcome Back</h2>
-        <p className="text-[#9E9E9E]">Sign in to your account to continue</p>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
+        <p className="text-gray-600">Sign in to your account to continue</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -99,19 +99,19 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister }) => {
           variant="primary"
           size="lg"
           loading={loading}
-          className="w-full"
+          className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-xl shadow-blue-500/30"
         >
           {loading ? 'Signing In...' : 'Sign In'}
         </Button>
       </form>
 
       <div className="mt-6 text-center">
-        <p className="text-[#9E9E9E]">
+        <p className="text-gray-600">
           Don't have an account?{' '}
           <button
             type="button"
             onClick={onSwitchToRegister}
-            className="text-[#1E88E5] hover:text-[#1565C0] font-medium transition-colors"
+            className="text-blue-600 hover:text-blue-700 font-medium transition-colors"
           >
             Create one here
           </button>

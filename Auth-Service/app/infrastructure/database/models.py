@@ -15,6 +15,17 @@ class UserModel(Base):
     full_name = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False, nullable=False)
     auth_provider = Column(SQLEnum('email', 'google', name='auth_provider'), nullable=False)
+    employee_profile_status = Column(
+        SQLEnum(
+            'NOT_STARTED', 
+            'PENDING_VERIFICATION', 
+            'VERIFIED', 
+            'REJECTED', 
+            name='employee_profile_status'
+        ), 
+        nullable=False, 
+        default='NOT_STARTED'
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

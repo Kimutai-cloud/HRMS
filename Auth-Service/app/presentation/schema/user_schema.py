@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Optional
 
-from app.core.entities.user import AuthProvider
+from app.core.entities.user import AuthProvider, EmployeeProfileStatus
 
 
 class UserResponse(BaseModel):
@@ -12,6 +12,7 @@ class UserResponse(BaseModel):
     full_name: Optional[str]
     is_verified: bool
     auth_provider: AuthProvider
+    employee_profile_status: EmployeeProfileStatus
     created_at: datetime
     
     class Config:

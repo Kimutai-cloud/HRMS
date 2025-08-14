@@ -6,7 +6,8 @@ from typing import Optional
 
 from app.core.exceptions.employee_exceptions import EmployeePermissionException
 from app.core.exceptions.role_exceptions import UnauthorizedException, ForbiddenException
-from app.infrastructure.database.connection import db_connection
+from app.core.entities.user_claims import UserClaims
+from app.infrastructure.database.connections import DatabaseConnection
 from app.infrastructure.database.repositories.employee_repository import EmployeeRepository
 from app.infrastructure.database.repositories.role_repository import RoleRepository
 from app.infrastructure.database.repositories.event_repository import EventRepository
@@ -93,12 +94,13 @@ def get_role_use_case(
     return RoleUseCase(role_repository, event_repository, rbac_service)
 
 
-# Authentication dependency
-async def get_current_user(
+# Enhanced Authentication dependencies
+
+async def get_current_user_claims(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     jwt_handler: JWTHandler = Depends(get_jwt_handler)
-) -> dict:
-    """Extract and validate JWT token, return user claims."""
+) -> UserClaims:
+    """Extract and validate JWT token, return enhanced user claims."""
     
     try:
         token_data = jwt_handler.verify_token(credentials.credentials)
@@ -109,28 +111,20 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Check if it's an access token
-        if token_data.get("type") != "access":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token type",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        # Create UserClaims object with enhanced information
+        user_claims = UserClaims(
+            user_id=token_data["user_id"],
+            email=token_data["email"],
+            employee_profile_status=token_data["employee_profile_status"],
+            token_type=token_data["token_type"],
+            issued_at=token_data.get("issued_at"),
+            expires_at=token_data.get("expires_at"),
+            audience=token_data.get("audience"),
+            issuer=token_data.get("issuer"),
+            raw_payload=token_data.get("raw_payload")
+        )
         
-        user_id = token_data.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        return {
-            "user_id": UUID(user_id),
-            "email": token_data.get("email"),
-            "roles": token_data.get("roles", []),
-            "scope": token_data.get("scope", {})
-        }
+        return user_claims
         
     except ValueError as e:
         raise HTTPException(
@@ -146,36 +140,94 @@ async def get_current_user(
         )
 
 
-# Authorization helpers
-async def require_admin(
-    current_user: dict = Depends(get_current_user),
-    rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
+# Legacy compatibility - returns dict like before
+async def get_current_user(
+    user_claims: UserClaims = Depends(get_current_user_claims)
 ) -> dict:
-    """Require admin role for the current user."""
+    """Legacy compatibility method that returns dict format."""
+    return {
+        "user_id": user_claims.user_id,
+        "email": user_claims.email,
+        "employee_profile_status": user_claims.employee_profile_status,
+        "access_level": user_claims.get_access_level()
+    }
+
+
+# Enhanced authorization helpers with profile status checking
+
+async def require_verified_profile(
+    user_claims: UserClaims = Depends(get_current_user_claims)
+) -> UserClaims:
+    """Require user to have verified employee profile."""
     
-    if not await rbac_service.is_admin(current_user["user_id"]):
+    if not user_claims.is_verified_profile():
+        detail = f"Verified employee profile required. Current status: {user_claims.employee_profile_status}"
+        
+        if user_claims.needs_profile_completion():
+            detail += " Please complete your employee profile first."
+        elif user_claims.is_pending_verification():
+            detail += " Your profile is under review."
+        elif user_claims.is_profile_rejected():
+            detail += " Your profile was rejected. Please resubmit with corrections."
+        
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail
+        )
+    
+    return user_claims
+
+
+async def require_admin(
+    user_claims: UserClaims = Depends(require_verified_profile),
+    rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
+) -> UserClaims:
+    """Require admin role AND verified profile."""
+    
+    if not await rbac_service.is_admin(user_claims.user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required"
         )
     
-    return current_user
+    return user_claims
 
 
 async def require_manager_or_admin(
-    current_user: dict = Depends(get_current_user),
+    user_claims: UserClaims = Depends(require_verified_profile),
     rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
-) -> dict:
-    """Require manager or admin role for the current user."""
+) -> UserClaims:
+    """Require manager or admin role AND verified profile."""
     
-    user_id = current_user["user_id"]
+    user_id = user_claims.user_id
     if not (await rbac_service.is_admin(user_id) or await rbac_service.is_manager(user_id)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Manager or Admin role required"
         )
     
-    return current_user
+    return user_claims
+
+
+async def allow_newcomer_access(
+    user_claims: UserClaims = Depends(get_current_user_claims)
+) -> UserClaims:
+    """Allow access for pending verification or verified users (newcomer + full access)."""
+    
+    if not user_claims.can_access_newcomer_endpoints():
+        detail = f"Profile verification required. Current status: {user_claims.employee_profile_status}"
+        
+        if user_claims.needs_profile_completion():
+            detail += " Please complete your employee profile first."
+        elif user_claims.is_profile_rejected():
+            detail += " Your profile was rejected. Please resubmit with corrections."
+        
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail
+        )
+    
+    return user_claims
 
 
 # Request context for audit logging

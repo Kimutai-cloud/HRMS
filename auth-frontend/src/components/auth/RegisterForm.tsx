@@ -55,7 +55,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
     setSuccessMessage('');
 
     if (!validateForm()) {
-      showNotification('warning', 'Please fix the form errors before submitting.');
+      showNotification('warning', 'Please check your information and try again.');
       return;
     }
 
@@ -63,7 +63,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
       showNotification('info', 'Creating your account...');
       const result = await register(formData);
       setSuccessMessage(result.message);
-      showNotification('success', 'Account created successfully! Please check your email for verification.');
+      showNotification('success', 'Great! Your account has been created. Please check your email to verify your account.');
       
       // Clear form
       setFormData({
@@ -79,7 +79,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
       }, 3000);
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Registration failed. Please try again.';
+      const errorMessage = error instanceof Error ? error.message : 'We couldn\'t create your account. Please try again or contact support if the problem persists.';
       showNotification('error', errorMessage);
     }
   };
@@ -111,13 +111,12 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
           </div>
 
           <div className="space-y-3">
-            <p className="text-[#9E9E9E]">
-              Redirecting to login page in a few seconds...
+            <p className="text-gray-600">
+              We'll redirect you to the login page in a few seconds...
             </p>
             <Button
               variant="outline"
               onClick={onSwitchToLogin}
-              className="w-full"
             >
               Go to login now
             </Button>
@@ -130,15 +129,15 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
   return (
     <Card>
       <div className="text-center mb-8">
-        <div className="w-16 h-16 bg-[#26A69A] rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-gradient-to-br from-teal-600 to-teal-700 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-teal-500/25">
           <User className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-3xl font-bold text-[#212121] mb-2">Create Account</h2>
-        <p className="text-[#9E9E9E]">Join us today! Please fill in your details</p>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h2>
+        <p className="text-gray-600">Join us today! Please fill in your details</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             label="First Name"
             type="text"
@@ -189,19 +188,19 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) => {
           variant="secondary"
           size="lg"
           loading={loading}
-          className="w-full"
+          className="w-full bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 shadow-xl shadow-teal-500/30"
         >
           {loading ? 'Creating Account...' : 'Create Account'}
         </Button>
       </form>
 
       <div className="mt-6 text-center">
-        <p className="text-[#9E9E9E]">
+        <p className="text-gray-600">
           Already have an account?{' '}
           <button
             type="button"
             onClick={onSwitchToLogin}
-            className="text-[#1E88E5] hover:text-[#1565C0] font-medium transition-colors"
+            className="text-blue-600 hover:text-blue-700 font-medium transition-colors"
           >
             Sign in here
           </button>

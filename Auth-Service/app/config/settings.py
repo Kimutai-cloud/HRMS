@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
+    JWT_AUDIENCE: str = "hrms-services"  
+    JWT_ISSUER: str = "hrms-auth-service" 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     EMAIL_TOKEN_EXPIRE_MINUTES: int = 30
@@ -41,6 +43,13 @@ class Settings(BaseSettings):
         "http://host.docker.internal:3000",  
         "http://host.docker.internal:5173",  
     ]
+    
+    # Internal service authentication
+    INTERNAL_SERVICE_TOKEN: str
+    ALLOWED_INTERNAL_SERVICES: List[str] = ["Employee-Service"]
+    
+    # Employee Service URL for potential future use
+    EMPLOYEE_SERVICE_URL: str = "http://localhost:8001"
     
     # Logging
     LOG_LEVEL: str = "INFO"

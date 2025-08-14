@@ -1,9 +1,10 @@
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from app.core.entities.user import AuthProvider
+from app.core.entities.user import AuthProvider, EmployeeProfileStatus
 
 
 @dataclass
@@ -13,6 +14,7 @@ class UserResponse:
     full_name: Optional[str]
     is_verified: bool
     auth_provider: AuthProvider
+    employee_profile_status: EmployeeProfileStatus  # Add profile status
     created_at: datetime
 
 

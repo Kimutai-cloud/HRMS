@@ -1,3 +1,8 @@
+from pydantic import BaseModel, Field, validator
+from datetime import datetime
+from typing import Optional, Dict, Any
+from uuid import UUID
+
 class AssignRoleRequest(BaseModel):
     user_id: UUID = Field(..., description="UUID of the user to assign role to")
     role_code: str = Field(..., description="Role code (ADMIN, MANAGER, EMPLOYEE)")

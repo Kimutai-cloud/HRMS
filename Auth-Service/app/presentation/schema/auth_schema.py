@@ -1,6 +1,10 @@
+
 from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+from uuid import UUID
 from typing import Optional
 
+from app.core.entities.user import AuthProvider, EmployeeProfileStatus
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -32,3 +36,36 @@ class PasswordResetRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
+class UserResponse(BaseModel):
+    id: UUID
+    email: EmailStr
+    full_name: Optional[str]
+    is_verified: bool
+    auth_provider: AuthProvider
+    employee_profile_status: EmployeeProfileStatus  
+    created_at: datetime
+    
+    
+class AuthResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+    
+   
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(..., max_length=255)
+
+
+class EmployeeProfileStatusResponse(BaseModel):
+    """Response showing user's employee profile status and next steps."""
+    user_id: UUID
+    email: EmailStr
+    employee_profile_status: EmployeeProfileStatus
+    status_description: str
+    next_steps: list[str]
+    can_access_system: bool
+    
+   

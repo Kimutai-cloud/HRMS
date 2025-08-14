@@ -1,10 +1,11 @@
+
 from typing import Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.entities.user import User, AuthProvider
+from app.core.entities.user import User, AuthProvider, EmployeeProfileStatus
 from app.core.interfaces.repositories import UserRepositoryInterface
 from app.core.exceptions.auth_exceptions import UserAlreadyExistsException
 from app.infrastructure.database.models import UserModel
@@ -22,6 +23,7 @@ class UserRepository(UserRepositoryInterface):
             full_name=user.full_name,
             is_verified=user.is_verified,
             auth_provider=user.auth_provider.value,
+            employee_profile_status=user.employee_profile_status.value,
             created_at=user.created_at,
             updated_at=user.updated_at
         )
@@ -63,6 +65,7 @@ class UserRepository(UserRepositoryInterface):
         db_user.full_name = user.full_name
         db_user.is_verified = user.is_verified
         db_user.auth_provider = user.auth_provider.value
+        db_user.employee_profile_status = user.employee_profile_status.value
         db_user.updated_at = user.updated_at
         
         await self.session.commit()
@@ -81,6 +84,33 @@ class UserRepository(UserRepositoryInterface):
             return True
         return False
     
+    async def update_employee_profile_status(self, user_id: UUID, status: EmployeeProfileStatus) -> bool:
+        """Update user's employee profile status."""
+        result = await self.session.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        db_user = result.scalar_one_or_none()
+        
+        if not db_user:
+            return False
+        
+        db_user.employee_profile_status = status.value
+        db_user.updated_at = func.now()
+        
+        await self.session.commit()
+        return True
+    
+    async def get_users_by_profile_status(self, status: EmployeeProfileStatus, limit: int = 100) -> list[User]:
+        """Get users by their employee profile status."""
+        result = await self.session.execute(
+            select(UserModel)
+            .where(UserModel.employee_profile_status == status.value)
+            .limit(limit)
+            .order_by(UserModel.created_at.desc())
+        )
+        db_users = result.scalars().all()
+        return [self._to_entity(db_user) for db_user in db_users]
+    
     def _to_entity(self, db_user: UserModel) -> User:
         return User(
             id=db_user.id,
@@ -89,6 +119,7 @@ class UserRepository(UserRepositoryInterface):
             full_name=db_user.full_name,
             is_verified=db_user.is_verified,
             auth_provider=AuthProvider(db_user.auth_provider),
+            employee_profile_status=EmployeeProfileStatus(db_user.employee_profile_status),
             created_at=db_user.created_at,
             updated_at=db_user.updated_at
         )

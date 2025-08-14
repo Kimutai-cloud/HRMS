@@ -41,13 +41,39 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* Card Glass Effect */
+/* Enhanced Card Glass Effect with Floating Animation */
 .card-glass {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 
+    0 25px 45px rgba(0, 0, 0, 0.1),
+    0 10px 20px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: float 6s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+/* Floating animation for cards */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotateX(0deg);
+  }
+  50% {
+    transform: translateY(-10px) rotateX(1deg);
+  }
+}
+
+/* Enhanced hover effect for cards */
+.card:hover {
+  animation-play-state: paused;
+  box-shadow: 
+    0 35px 65px rgba(0, 0, 0, 0.15),
+    0 15px 30px rgba(0, 0, 0, 0.1),
+    0 0 40px rgba(30, 136, 229, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: translateY(-8px) scale(1.02);
 }
 
 /* Notification Animations */
@@ -93,6 +119,15 @@ body {
   }
 }
 
+@keyframes glowing {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(30, 136, 229, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(30, 136, 229, 0.6);
+  }
+}
+
 /* Animation Classes */
 .animate-in {
   animation: slideInFromRight 0.3s ease-out forwards;
@@ -110,14 +145,18 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Hover Effects */
+.glow {
+  animation: glowing 3s ease-in-out infinite;
+}
+
+/* Enhanced Hover Effects */
 .hover-lift {
-  transition: all 0.2s ease-in-out;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
 }
 
 /* Focus States */
@@ -127,7 +166,7 @@ body {
 
 .focus-ring:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.1);
+  box-shadow: 0 0 0 4px rgba(30, 136, 229, 0.15);
 }
 
 /* Loading States */
@@ -178,7 +217,7 @@ body {
   box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.1);
 }
 
-/* Button Styles */
+/* Enhanced Button Styles */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -190,8 +229,25 @@ body {
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn:hover::before {
+  left: 100%;
 }
 
 .btn:disabled {
@@ -200,25 +256,25 @@ body {
 }
 
 .btn-primary {
-  background-color: #1E88E5;
+  background: linear-gradient(135deg, #1E88E5, #1565C0);
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #1565C0;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(30, 136, 229, 0.3);
+  background: linear-gradient(135deg, #1565C0, #0D47A1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(30, 136, 229, 0.4);
 }
 
 .btn-secondary {
-  background-color: #26A69A;
+  background: linear-gradient(135deg, #26A69A, #1E88E5);
   color: white;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: #1E88E5;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(38, 166, 154, 0.3);
+  background: linear-gradient(135deg, #1E88E5, #1565C0);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(38, 166, 154, 0.4);
 }
 
 .btn-outline {
@@ -230,22 +286,45 @@ body {
 .btn-outline:hover:not(:disabled) {
   background-color: #1E88E5;
   color: white;
+  transform: translateY(-2px);
 }
 
-/* Card Styles */
+/* Enhanced Card Styles */
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 1.5rem;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  transition: all 0.3s ease-in-out;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 2rem;
+  box-shadow: 
+    0 25px 50px rgba(0, 0, 0, 0.1),
+    0 10px 20px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  position: relative;
+  overflow: hidden;
+  animation: float 8s ease-in-out infinite;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
 }
 
 .card:hover {
-  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
-  transform: translateY(-5px);
+  animation-play-state: paused;
+  box-shadow: 
+    0 35px 70px rgba(0, 0, 0, 0.15),
+    0 15px 35px rgba(0, 0, 0, 0.1),
+    0 0 50px rgba(30, 136, 229, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transform: translateY(-10px) scale(1.02);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
 /* Status Colors */
@@ -265,6 +344,14 @@ body {
   color: #29B6F6;
 }
 
+/* Enhanced 3D Shadow Effect */
+.shadow-3xl {
+  box-shadow: 
+    0 35px 70px rgba(0, 0, 0, 0.15),
+    0 15px 35px rgba(0, 0, 0, 0.1),
+    0 0 50px rgba(30, 136, 229, 0.1);
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .container {
@@ -275,6 +362,8 @@ body {
   .card {
     margin: 1rem;
     padding: 1.5rem;
+    border-radius: 1.5rem;
+    animation: none; /* Disable floating on mobile for performance */
   }
   
   .btn {
@@ -287,6 +376,7 @@ body {
   .card {
     margin: 0.5rem;
     padding: 1rem;
+    border-radius: 1rem;
   }
   
   h1 {
@@ -326,5 +416,19 @@ body {
   .card {
     box-shadow: none;
     border: 1px solid #000;
+    animation: none;
+  }
+}
+
+/* Performance optimizations */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .card {
+    animation: none;
   }
 }

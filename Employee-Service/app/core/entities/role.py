@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from uuid import UUID
 from enum import Enum
+from datetime import datetime
 
 
 class RoleCode(str, Enum):

@@ -1,9 +1,9 @@
-# Replace: Auth-Service/app/application/use_case/auth_use_cases.py
 
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime
+from typing import Optional, List
 
-from app.core.entities.user import User, AuthProvider
+from app.core.entities.user import User, AuthProvider, EmployeeProfileStatus
 from app.core.entities.token import Token, TokenType
 from app.core.exceptions.auth_exceptions import (
     UserAlreadyExistsException,
@@ -38,7 +38,7 @@ class EmailServiceException(Exception):
 
 
 class AuthUseCase:
-    """Authentication use cases."""
+    """Authentication use cases with employee profile status management."""
     
     def __init__(
         self,
@@ -68,7 +68,7 @@ class AuthUseCase:
         if len(request.password) < 8:
             raise InvalidCredentialsException("Password must be at least 8 characters long")
         
-        # Create new user
+        # Create new user with NOT_STARTED profile status
         hashed_password = self.password_service.hash_password(request.password)
         user = User(
             id=uuid4(),
@@ -77,12 +77,12 @@ class AuthUseCase:
             full_name=request.full_name,
             is_verified=False,
             auth_provider=AuthProvider.EMAIL,
+            employee_profile_status=EmployeeProfileStatus.NOT_STARTED,  # Default status
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow()
         )
         
-        # CRITICAL: Only save user AFTER email is successfully sent
-        # First, try to send verification email
+        # Send verification email
         verification_token = self.token_service.create_email_verification_token(user)
         
         try:
@@ -97,20 +97,19 @@ class AuthUseCase:
                 )
                 
         except Exception as e:
-            # Don't create user if email fails
             raise EmailServiceException(
                 f"Failed to send verification email: {str(e)}. "
                 "Please check your email service configuration."
             )
         
-        # Only create user if email was sent successfully
+        # Create user only if email was sent successfully
         try:
             created_user = await self.user_repository.create(user)
             print(f"✅ User created successfully: {created_user.email}")
             print(f"📧 Verification email sent to: {created_user.email}")
+            print(f"👤 Employee profile status: {created_user.employee_profile_status.value}")
             
         except Exception as e:
-            # If user creation fails after email was sent, log this issue
             print(f"❌ Critical: Email sent but user creation failed: {e}")
             raise Exception(
                 "Account creation failed after sending verification email. "
@@ -123,6 +122,7 @@ class AuthUseCase:
             full_name=created_user.full_name,
             is_verified=created_user.is_verified,
             auth_provider=created_user.auth_provider,
+            employee_profile_status=created_user.employee_profile_status,  # Include in response
             created_at=created_user.created_at
         )
     
@@ -148,7 +148,7 @@ class AuthUseCase:
                 "Check your inbox for the verification email."
             )
         
-        # Create tokens
+        # Create tokens (JWT will include employee_profile_status)
         token_pair = self.token_service.create_token_pair(user)
         
         return AuthResponse(
@@ -162,6 +162,7 @@ class AuthUseCase:
                 full_name=user.full_name,
                 is_verified=user.is_verified,
                 auth_provider=user.auth_provider,
+                employee_profile_status=user.employee_profile_status,  # Include in response
                 created_at=user.created_at
             )
         )
@@ -188,12 +189,13 @@ class AuthUseCase:
                     full_name=name,
                     is_verified=True,  # Google accounts are pre-verified
                     auth_provider=AuthProvider.GOOGLE,
+                    employee_profile_status=EmployeeProfileStatus.NOT_STARTED,  # Still need employee profile
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 user = await self.user_repository.create(user)
                 
-                # Send welcome email (non-blocking - don't fail if email fails)
+                # Send welcome email (non-blocking)
                 try:
                     await self.email_service.send_welcome_email(user.email, user.full_name or "User")
                 except Exception as e:
@@ -213,6 +215,7 @@ class AuthUseCase:
                     full_name=user.full_name,
                     is_verified=user.is_verified,
                     auth_provider=user.auth_provider,
+                    employee_profile_status=user.employee_profile_status,
                     created_at=user.created_at
                 )
             )
@@ -232,12 +235,12 @@ class AuthUseCase:
         if not user_id:
             raise TokenInvalidException("Invalid token payload")
         
-        # Get user
+        # Get user (this ensures we have the latest employee_profile_status)
         user = await self.user_repository.get_by_id(user_id)
         if not user:
             raise UserNotFoundException("User not found")
         
-        # Create new tokens
+        # Create new tokens with updated user info
         token_pair = self.token_service.create_token_pair(user)
         
         return AuthResponse(
@@ -251,6 +254,7 @@ class AuthUseCase:
                 full_name=user.full_name,
                 is_verified=user.is_verified,
                 auth_provider=user.auth_provider,
+                employee_profile_status=user.employee_profile_status,
                 created_at=user.created_at
             )
         )
@@ -285,6 +289,9 @@ class AuthUseCase:
         except Exception as e:
             print(f"⚠️  Welcome email failed (non-critical): {e}")
         
+        print(f"✅ Email verified for user: {user.email}")
+        print(f"👤 Next step: Complete employee profile (status: {user.employee_profile_status.value})")
+        
         return True
     
     async def forgot_password(self, request: ForgotPasswordRequest) -> bool:
@@ -292,12 +299,12 @@ class AuthUseCase:
         
         user = await self.user_repository.get_by_email(request.email)
         if not user:
-            # Don't reveal that user doesn't exist - return success anyway
+            # Don't reveal that user doesn't exist
             print(f"⚠️  Password reset requested for non-existent email: {request.email}")
             return True
         
         if not user.can_login_with_password():
-            # Don't send reset email for Google users - return success anyway
+            # Don't send reset email for Google users
             print(f"⚠️  Password reset requested for Google user: {request.email}")
             return True
         
@@ -311,7 +318,6 @@ class AuthUseCase:
         except Exception as e:
             print(f"❌ Password reset email failed: {e}")
         
-        # Always return True to prevent email enumeration
         return True
     
     async def reset_password(self, request: PasswordResetRequest) -> bool:
@@ -346,3 +352,24 @@ class AuthUseCase:
         await self.token_repository.revoke_user_tokens(user.id, TokenType.REFRESH.value)
         
         return True
+    
+    # New methods for employee profile status management
+    
+    async def get_user_by_id(self, user_id: UUID) -> Optional[User]:
+        """Get user by ID."""
+        return await self.user_repository.get_by_id(user_id)
+    
+    async def update_employee_profile_status(self, user_id: UUID, status: EmployeeProfileStatus) -> bool:
+        """Update user's employee profile status."""
+        success = await self.user_repository.update_employee_profile_status(user_id, status)
+        
+        if success:
+            user = await self.user_repository.get_by_id(user_id)
+            if user:
+                print(f"👤 Employee profile status updated for {user.email}: {status.value}")
+        
+        return success
+    
+    async def get_users_by_profile_status(self, status: EmployeeProfileStatus, limit: int = 100) -> List[User]:
+        """Get users by their employee profile status."""
+        return await self.user_repository.get_users_by_profile_status(status, limit)
