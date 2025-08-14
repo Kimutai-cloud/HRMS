@@ -41,7 +41,6 @@ services:
       - JWT_AUDIENCE=hrms-services
       - JWT_ISSUER=hrms-auth-service
       - MAIL_USERNAME=kevin
-      - MAIL_PASSWORD=tvcx oncl bfqr zfde
       - MAIL_FROM=kevin.kimu0306@gmail.com
       - MAIL_FROM_NAME=HRMS
       - MAIL_PORT=587
@@ -75,12 +74,9 @@ services:
       - "8001:8001"
     environment:
       - DATABASE_URL=postgresql+asyncpg://hrms_user:hrms_password@postgres:5432/hrms_db
-      - JWT_SECRET_KEY=MY_SUPER_SECRET_KEY
-      - JWT_ALGORITHM=HS256
       - JWT_AUDIENCE=hrms-services
       - JWT_ISSUER=hrms-auth-service
       - AUTH_SERVICE_URL=http://auth-service:8000
-      - INTERNAL_SERVICE_TOKEN=MY_INTERNAL_SERVICE_TOKEN
       - DEBUG=true
       - LOG_LEVEL=INFO
       - SERVICE_PORT=8001
