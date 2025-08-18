@@ -447,3 +447,5 @@ class ProfileUseCase:
             documents=documents,
             verification_details=verification_details
         )
+    
+    

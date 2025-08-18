@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.core.entities.employee import Employee, EmploymentStatus
+from app.core.entities.employee import Employee, EmploymentStatus, VerificationStatus
 from app.core.interfaces.repositories import EmployeeRepositoryInterface
 from app.core.exceptions.employee_exceptions import EmployeeAlreadyExistsException
 from app.infrastructure.database.models import EmployeeModel
@@ -81,7 +82,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         if not db_employee:
             raise ValueError("Employee not found")
         
-        # Update fields
+        db_employee.user_id = employee.user_id  
         db_employee.first_name = employee.first_name
         db_employee.last_name = employee.last_name
         db_employee.email = employee.email
@@ -89,12 +90,26 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         db_employee.title = employee.title
         db_employee.department = employee.department
         db_employee.manager_id = employee.manager_id
-        db_employee.status = employee.status.value
+        db_employee.status = employee.employment_status.value
+        db_employee.verification_status = employee.verification_status.value 
         db_employee.hired_at = employee.hired_at
         db_employee.deactivated_at = employee.deactivated_at
         db_employee.deactivation_reason = employee.deactivation_reason
         db_employee.updated_at = employee.updated_at
         db_employee.version = employee.version
+
+        if hasattr(employee, 'submitted_at'):
+            db_employee.submitted_at = employee.submitted_at
+        if hasattr(employee, 'final_approved_by'):
+            db_employee.final_approved_by = employee.final_approved_by
+        if hasattr(employee, 'final_approved_at'):
+            db_employee.final_approved_at = employee.final_approved_at
+        if hasattr(employee, 'rejection_reason'):
+            db_employee.rejection_reason = employee.rejection_reason
+        if hasattr(employee, 'rejected_by'):
+            db_employee.rejected_by = employee.rejected_by
+        if hasattr(employee, 'rejected_at'):
+            db_employee.rejected_at = employee.rejected_at
         
         await self.session.commit()
         await self.session.refresh(db_employee)
@@ -228,6 +243,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
     def _to_entity(self, db_employee: EmployeeModel) -> Employee:
         return Employee(
             id=db_employee.id,
+            user_id=db_employee.user_id,
             first_name=db_employee.first_name,
             last_name=db_employee.last_name,
             email=db_employee.email,
@@ -241,5 +257,69 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             deactivation_reason=db_employee.deactivation_reason,
             created_at=db_employee.created_at,
             updated_at=db_employee.updated_at,
-            version=db_employee.version
+            version=db_employee.version,
+            submitted_at=getattr(db_employee, 'submitted_at', None),
+            final_approved_by=getattr(db_employee, 'final_approved_by', None),
+            final_approved_at=getattr(db_employee, 'final_approved_at', None),
+            rejection_reason=getattr(db_employee, 'rejection_reason', None),
+            rejected_by=getattr(db_employee, 'rejected_by', None),
+            rejected_at=getattr(db_employee, 'rejected_at', None)
         )
+    
+    
+    async def get_by_user_id(self, user_id: UUID) -> Optional[Employee]:
+        """Get employee by user ID."""
+        result = await self.session.execute(
+            select(EmployeeModel)
+            .options(selectinload(EmployeeModel.manager))
+            .where(EmployeeModel.user_id == user_id)
+        )
+        db_employee = result.scalar_one_or_none()
+        return self._to_entity(db_employee) if db_employee else None
+
+    async def update_employee_profile_status(self, user_id: UUID, status: str) -> bool:
+        """Update user's employee profile status."""
+        result = await self.session.execute(
+            select(EmployeeModel).where(EmployeeModel.user_id == user_id)
+        )
+        db_employee = result.scalar_one_or_none()
+        
+        if not db_employee:
+            return False
+        
+        # Map status strings to VerificationStatus enum values
+        status_mapping = {
+            "NOT_STARTED": "NOT_SUBMITTED",
+            "PENDING_VERIFICATION": "PENDING_DETAILS_REVIEW", 
+            "VERIFIED": "VERIFIED",
+            "REJECTED": "REJECTED"
+        }
+        
+        mapped_status = status_mapping.get(status, status)
+        db_employee.verification_status = mapped_status
+        db_employee.updated_at = func.now()
+        
+        await self.session.commit()
+        return True
+    
+    async def get_employees_by_profile_status(self, status: str, limit: int = 100) -> List[Employee]:
+        """Get employees by their profile status."""
+        # Map status strings to VerificationStatus enum values
+        status_mapping = {
+            "NOT_STARTED": "NOT_SUBMITTED",
+            "PENDING_VERIFICATION": "PENDING_DETAILS_REVIEW",
+            "VERIFIED": "VERIFIED", 
+            "REJECTED": "REJECTED"
+        }
+        
+        mapped_status = status_mapping.get(status, status)
+        
+        result = await self.session.execute(
+            select(EmployeeModel)
+            .where(EmployeeModel.verification_status == mapped_status)
+            .limit(limit)
+            .order_by(EmployeeModel.created_at.desc())
+        )
+        db_employees = result.scalars().all()
+        return [self._to_entity(db_employee) for db_employee in db_employees]
+

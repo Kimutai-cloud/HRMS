@@ -9,44 +9,9 @@ import aiofiles
 import os
 
 from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus
+from app.core.interfaces.repositories import DocumentRepositoryInterface  # FIXED IMPORT
 from app.infrastructure.database.models import EmployeeDocumentModel
 from app.config.settings import settings
-
-
-class DocumentRepositoryInterface:
-    """Abstract interface for document repository."""
-    
-    async def create(self, document: EmployeeDocument) -> EmployeeDocument:
-        """Create a new document record."""
-        pass
-    
-    async def get_by_id(self, document_id: UUID) -> Optional[EmployeeDocument]:
-        """Get document by ID."""
-        pass
-    
-    async def get_employee_documents(self, employee_id: UUID) -> List[EmployeeDocument]:
-        """Get all documents for an employee."""
-        pass
-    
-    async def get_documents_by_type(self, employee_id: UUID, document_type: DocumentType) -> List[EmployeeDocument]:
-        """Get documents by type for an employee."""
-        pass
-    
-    async def get_documents_by_status(self, review_status: DocumentReviewStatus, limit: int = 100) -> List[EmployeeDocument]:
-        """Get documents by review status."""
-        pass
-    
-    async def update(self, document: EmployeeDocument) -> EmployeeDocument:
-        """Update document."""
-        pass
-    
-    async def delete(self, document_id: UUID) -> bool:
-        """Delete document and file."""
-        pass
-    
-    async def get_pending_document_reviews(self, limit: int = 100) -> List[EmployeeDocument]:
-        """Get documents pending review."""
-        pass
 
 
 class DocumentRepository(DocumentRepositoryInterface):

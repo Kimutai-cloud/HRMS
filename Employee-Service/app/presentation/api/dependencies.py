@@ -19,8 +19,10 @@ from app.application.use_case.employee_use_cases import EmployeeUseCase
 from app.application.use_case.role_use_cases import RoleUseCase
 from app.application.use_case.admin_review_use_cases import AdminReviewUseCase
 from app.application.use_case.document_use_cases import DocumentUseCase
+from app.application.use_case.profile_use_cases import ProfileUseCase  
 from app.infrastructure.database.repositories.document_repository import DocumentRepository
 from app.infrastructure.external.auth_service_client import auth_service_client
+
 
 # Security scheme
 security = HTTPBearer()
@@ -89,6 +91,17 @@ def get_employee_use_case(
 ) -> EmployeeUseCase:
     return EmployeeUseCase(employee_repository, event_repository, domain_service, rbac_service)
 
+def get_profile_use_case(
+    employee_repository: EmployeeRepository = Depends(get_employee_repository),
+    role_repository: RoleRepository = Depends(get_role_repository),
+    event_repository: EventRepository = Depends(get_event_repository)
+) -> ProfileUseCase:
+    return ProfileUseCase(
+        employee_repository=employee_repository,
+        role_repository=role_repository,
+        event_repository=event_repository,
+        auth_service_client=auth_service_client
+    )
 
 def get_role_use_case(
     role_repository: RoleRepository = Depends(get_role_repository),
@@ -247,6 +260,7 @@ async def get_request_context(request: Request) -> dict:
 
 def get_document_repository(session: AsyncSession = Depends(get_db_session)) -> DocumentRepository:
     return DocumentRepository(session)
+
 
 
 def get_document_use_case(

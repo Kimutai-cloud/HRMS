@@ -5,6 +5,7 @@ from uuid import UUID
 from app.core.entities.employee import Employee, EmploymentStatus
 from app.core.entities.role import Role, RoleAssignment, RoleCode
 from app.core.entities.events import DomainEvent
+from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus  
 
 
 class EmployeeRepositoryInterface(ABC):
@@ -63,6 +64,21 @@ class EmployeeRepositoryInterface(ABC):
     @abstractmethod
     async def check_circular_managership(self, employee_id: UUID, manager_id: UUID) -> bool:
         """Check if assigning manager would create circular relationship."""
+        pass
+
+    @abstractmethod
+    async def get_by_user_id(self, user_id: UUID) -> Optional[Employee]:
+        """Get employee by user ID."""
+        pass
+    
+    @abstractmethod
+    async def update_employee_profile_status(self, user_id: UUID, status: str) -> bool:
+        """Update user's employee profile status."""
+        pass
+    
+    @abstractmethod
+    async def get_employees_by_profile_status(self, status: str, limit: int = 100) -> List[Employee]:
+        """Get employees by their profile status."""
         pass
 
 
@@ -136,4 +152,57 @@ class EventRepositoryInterface(ABC):
     @abstractmethod
     async def cleanup_published_events(self, older_than_days: int = 7) -> int:
         """Clean up old published events."""
+        pass
+
+class DocumentRepositoryInterface(ABC):
+    """Abstract interface for document repository."""
+    
+    @abstractmethod
+    async def create(self, document: EmployeeDocument) -> EmployeeDocument:
+        """Create a new document record."""
+        pass
+    
+    @abstractmethod
+    async def get_by_id(self, document_id: UUID) -> Optional[EmployeeDocument]:
+        """Get document by ID."""
+        pass
+    
+    @abstractmethod
+    async def get_employee_documents(self, employee_id: UUID) -> List[EmployeeDocument]:
+        """Get all documents for an employee."""
+        pass
+    
+    @abstractmethod
+    async def get_documents_by_type(self, employee_id: UUID, document_type: DocumentType) -> List[EmployeeDocument]:
+        """Get documents by type for an employee."""
+        pass
+    
+    @abstractmethod
+    async def get_documents_by_status(self, review_status: DocumentReviewStatus, limit: int = 100) -> List[EmployeeDocument]:
+        """Get documents by review status."""
+        pass
+    
+    @abstractmethod
+    async def update(self, document: EmployeeDocument) -> EmployeeDocument:
+        """Update document."""
+        pass
+    
+    @abstractmethod
+    async def delete(self, document_id: UUID) -> bool:
+        """Delete document and file."""
+        pass
+    
+    @abstractmethod
+    async def get_pending_document_reviews(self, limit: int = 100) -> List[EmployeeDocument]:
+        """Get documents pending review."""
+        pass
+    
+    @abstractmethod
+    async def get_document_statistics(self) -> Dict[str, Any]:
+        """Get document review statistics."""
+        pass
+    
+    @abstractmethod
+    async def get_employee_document_summary(self, employee_id: UUID) -> Dict[str, Any]:
+        """Get document summary for an employee."""
         pass
