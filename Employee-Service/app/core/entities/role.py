@@ -9,13 +9,13 @@ class RoleCode(str, Enum):
     ADMIN = "ADMIN"
     MANAGER = "MANAGER" 
     EMPLOYEE = "EMPLOYEE"
-    NEWCOMER = "NEWCOMER"  # New role for unverified employees
+    NEWCOMER = "NEWCOMER"  
 
 
 @dataclass
 class Role:
     """Role entity for RBAC system."""
-p    id: Optional[UUID]
+    id: Optional[UUID]
     code: RoleCode
     name: str
     description: Optional[str]

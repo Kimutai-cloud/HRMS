@@ -56,8 +56,7 @@ class DocumentResponse(BaseModel):
     reviewed_at: Optional[datetime]
     is_required: bool
     
-    class Config:
-        from_attributes = True
+
 
 
 class ProfileVerificationStatusResponse(BaseModel):
@@ -107,9 +106,7 @@ class EmployeeProfileResponse(BaseModel):
     
     documents: List[DocumentResponse] = []
     verification_details: Optional[ProfileVerificationStatusResponse] = None
-    
-    class Config:
-        from_attributes = True
+
 
 
 class DepartmentResponse(BaseModel):

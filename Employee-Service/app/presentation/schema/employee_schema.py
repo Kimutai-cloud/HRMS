@@ -25,18 +25,7 @@ class CreateEmployeeRequest(BaseModel):
     def validate_email(cls, v):
         return v.lower().strip()
     
-    class Config:
-        schema_extra = {
-            "example": {
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "john.doe@example.com",
-                "phone": "+1-555-0123",
-                "title": "Software Engineer",
-                "department": "Engineering",
-                "manager_id": "123e4567-e89b-12d3-a456-426614174000"
-            }
-        }
+
 
 
 class UpdateEmployeeRequest(BaseModel):
@@ -80,27 +69,7 @@ class EmployeeResponse(BaseModel):
     updated_at: datetime
     version: int
     
-    class Config:
-        from_attributes = True
-        schema_extra = {
-            "example": {
-                "id": "123e4567-e89b-12d3-a456-426614174000",
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "john.doe@example.com",
-                "phone": "+1-555-0123",
-                "title": "Software Engineer",
-                "department": "Engineering",
-                "manager_id": "456e7890-e89b-12d3-a456-426614174001",
-                "status": "ACTIVE",
-                "hired_at": "2024-01-15T09:00:00Z",
-                "deactivated_at": None,
-                "deactivation_reason": None,
-                "created_at": "2024-01-15T09:00:00Z",
-                "updated_at": "2024-01-15T09:00:00Z",
-                "version": 1
-            }
-        }
+    
 
 
 class EmployeeListResponse(BaseModel):
@@ -110,23 +79,4 @@ class EmployeeListResponse(BaseModel):
     size: int
     pages: int
     
-    class Config:
-        schema_extra = {
-            "example": {
-                "employees": [
-                    {
-                        "id": "123e4567-e89b-12d3-a456-426614174000",
-                        "first_name": "John",
-                        "last_name": "Doe",
-                        "email": "john.doe@example.com",
-                        "status": "ACTIVE",
-                        "title": "Software Engineer",
-                        "department": "Engineering"
-                    }
-                ],
-                "total": 1,
-                "page": 1,
-                "size": 20,
-                "pages": 1
-            }
-        }
+    

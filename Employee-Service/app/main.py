@@ -5,7 +5,7 @@ import logging
 
 from app.config.settings import settings
 from app.config.logging import setup_logging
-from app.presentation.api.v1 import employees, roles, me
+from app.presentation.api.v1 import employees, roles, me, admin, profile 
 from app.presentation.api.v1.health import router as health_router
 from app.presentation.middleware.cors import setup_cors
 from app.presentation.middleware.error_handler import (
@@ -15,12 +15,16 @@ from app.presentation.middleware.error_handler import (
     http_exception_handler,
     general_exception_handler
 )
+
 from app.core.exceptions.employee_exceptions import EmployeeException
 from app.core.exceptions.role_exceptions import RoleException
+
 
 # Setup logging
 setup_logging()
 logger = logging.getLogger(__name__)
+
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -35,6 +39,34 @@ app = FastAPI(
 # Setup CORS
 setup_cors(app)
 
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(profile.router, prefix="/api/v1")
+
+@app.get("/api/v1/info")
+async def service_info():
+    """Service information endpoint."""
+    return {
+        "service": settings.SERVICE_NAME,
+        "version": settings.APP_VERSION,
+        "description": "Employee management microservice with admin verification workflow",
+        "endpoints": {
+            "employees": "/api/v1/employees",
+            "roles": "/api/v1/roles", 
+            "me": "/api/v1/me",
+            "profile": "/api/v1/profile",
+            "admin": "/api/v1/admin",
+            "health": "/api/v1/health",
+            "docs": "/docs" if settings.DEBUG else None
+        },
+        "features": [
+            "Employee profile submission and verification",
+            "Multi-stage admin approval workflow",
+            "Document upload and review system",
+            "Role-based access control",
+            "Auth Service integration",
+            "Audit logging and compliance"
+        ]
+    }
 
 @app.on_event("startup")
 async def startup_event():
@@ -56,59 +88,10 @@ async def startup_event():
             
             logger.info("✅ Database tables created successfully!")
             
-            # Seed initial roles
-            await seed_roles()
             
         except Exception as e:
             logger.error(f"❌ Failed to create database tables: {e}")
 
-
-async def seed_roles():
-    """Seed initial roles if they don't exist."""
-    try:
-        from app.infrastructure.database.connections import db_connection
-        from app.infrastructure.database.repositories.role_repository import RoleRepository
-        from app.core.entities.role import Role, RoleCode
-        from uuid import uuid4
-        
-        async with db_connection.async_session() as session:
-            role_repo = RoleRepository(session)
-            
-            # Check if roles already exist
-            existing_admin = await role_repo.get_role_by_code(RoleCode.ADMIN)
-            if existing_admin:
-                logger.info("✅ Roles already seeded")
-                return
-            
-            # Create default roles
-            roles = [
-                Role(
-                    id=uuid4(),
-                    code=RoleCode.ADMIN,
-                    name="Administrator",
-                    description="Full system access with all permissions"
-                ),
-                Role(
-                    id=uuid4(),
-                    code=RoleCode.MANAGER,
-                    name="Manager",
-                    description="Can manage team members and view team data"
-                ),
-                Role(
-                    id=uuid4(),
-                    code=RoleCode.EMPLOYEE,
-                    name="Employee",
-                    description="Basic employee access to view own profile"
-                )
-            ]
-            
-            for role in roles:
-                await role_repo.create_role(role)
-            
-            logger.info("✅ Default roles seeded successfully!")
-            
-    except Exception as e:
-        logger.error(f"❌ Failed to seed roles: {e}")
 
 
 @app.on_event("shutdown")

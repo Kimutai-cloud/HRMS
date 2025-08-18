@@ -102,7 +102,7 @@ async def list_employees(
     manager_id: Optional[UUID] = Query(None, description="Filter by manager ID"),
     search: Optional[str] = Query(None, description="Search in name, email, title"),
     sort_by: str = Query("created_at", description="Sort field"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     current_user: dict = Depends(get_current_user),
     employee_use_case: EmployeeUseCase = Depends(get_employee_use_case)
 ):

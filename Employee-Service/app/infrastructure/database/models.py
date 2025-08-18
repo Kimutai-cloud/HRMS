@@ -11,6 +11,7 @@ class EmployeeModel(Base):
     __tablename__ = "employees"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
     first_name = Column(String(255), nullable=False)
     last_name = Column(String(255), nullable=False) 
     email = Column(String(255), unique=True, nullable=False, index=True)
@@ -34,6 +35,29 @@ class EmployeeModel(Base):
         # Index for manager queries
         {'extend_existing': True}
     )
+
+    verification_status = Column(
+        SQLEnum(
+            'NOT_SUBMITTED', 'PENDING_DETAILS_REVIEW', 'PENDING_DOCUMENTS_REVIEW',
+            'PENDING_ROLE_ASSIGNMENT', 'PENDING_FINAL_APPROVAL', 'VERIFIED', 'REJECTED',
+            name='verification_status'
+        ),
+        nullable=False,
+        default='NOT_SUBMITTED',
+        index=True
+    )
+
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    details_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
+    details_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    documents_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
+    documents_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    role_assigned_by = Column(UUID(as_uuid=True), nullable=True)
+    role_assigned_at = Column(DateTime(timezone=True), nullable=True)
+    final_approved_by = Column(UUID(as_uuid=True), nullable=True)
+    final_approved_at = Column(DateTime(timezone=True), nullable=True)
+    final_rejected_by = Column(UUID(as_uuid=True), nullable=True)
+    final_rejected_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class RoleModel(Base):
@@ -90,3 +114,122 @@ class AuditLogModel(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     ip_address = Column(String(45), nullable=True)  # IPv4/IPv6
     user_agent = Column(Text, nullable=True)
+
+
+class EmployeeDocumentModel(Base):
+    __tablename__ = "employee_documents"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey('employees.id', ondelete='CASCADE'), nullable=False, index=True)
+    document_type = Column(
+        SQLEnum(
+            'ID_CARD', 'PASSPORT', 'DRIVERS_LICENSE', 'BIRTH_CERTIFICATE',
+            'EDUCATION_CERTIFICATE', 'EMPLOYMENT_CONTRACT', 'PREVIOUS_EMPLOYMENT_LETTER',
+            'PROFESSIONAL_CERTIFICATION', 'OTHER',
+            name='document_type'
+        ), 
+        nullable=False
+    )
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    uploaded_by = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Review fields
+    reviewed_by = Column(UUID(as_uuid=True), nullable=True, index=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_status = Column(
+        SQLEnum(
+            'PENDING', 'APPROVED', 'REJECTED', 'REQUIRES_REPLACEMENT',
+            name='document_review_status'
+        ),
+        nullable=False,
+        default='PENDING',
+        index=True
+    )
+    review_notes = Column(Text, nullable=True)
+    
+    # Metadata
+    is_required = Column(Boolean, nullable=False, default=True)
+    display_order = Column(Integer, nullable=False, default=0)
+    
+    # Relationships
+    employee = relationship("EmployeeModel", backref="documents")
+    
+    # Indexes for common queries
+    __table_args__ = (
+        # Index for employee + document type queries
+        # Index for review status queries
+        {'extend_existing': True}
+    )
+
+
+class ApprovalStageModel(Base):
+    __tablename__ = "approval_stages"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey('employees.id', ondelete='CASCADE'), nullable=False, index=True)
+    stage = Column(
+        SQLEnum(
+            'DETAILS_REVIEW', 'DOCUMENTS_REVIEW', 'ROLE_ASSIGNMENT', 'FINAL_APPROVAL',
+            name='approval_stage'
+        ),
+        nullable=False
+    )
+    action = Column(
+        SQLEnum(
+            'APPROVED', 'REJECTED', 'ROLE_ASSIGNED', 'FINAL_APPROVED',
+            name='approval_action'
+        ),
+        nullable=False
+    )
+    performed_by = Column(UUID(as_uuid=True), nullable=False, index=True)
+    performed_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    notes = Column(Text, nullable=True)
+    previous_status = Column(String(50), nullable=True)
+    new_status = Column(String(50), nullable=False)
+    
+    # Additional data (role assigned, etc.)
+    additional_data = Column(JSON, nullable=True)
+    
+    # Relationships
+    employee = relationship("EmployeeModel", backref="approval_stages")
+    
+    # Indexes
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+
+
+class NotificationModel(Base):
+    __tablename__ = "notifications"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    type = Column(
+        SQLEnum(
+            'PROFILE_APPROVED', 'PROFILE_REJECTED', 'DOCUMENT_APPROVED', 'DOCUMENT_REJECTED',
+            'STAGE_ADVANCED', 'FINAL_VERIFICATION', 'ACTION_REQUIRED',
+            name='notification_type'
+        ),
+        nullable=False
+    )
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    data = Column(JSON, nullable=True)  # Additional context data
+    
+    # Status tracking
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    
+    # Email/SMS delivery tracking
+    email_sent = Column(Boolean, nullable=False, default=False)
+    email_sent_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Indexes
+    __table_args__ = (
+        {'extend_existing': True}
+    )

@@ -15,14 +15,7 @@ class AssignRoleRequest(BaseModel):
             raise ValueError(f'Role code must be one of: {valid_codes}')
         return v
     
-    class Config:
-        schema_extra = {
-            "example": {
-                "user_id": "123e4567-e89b-12d3-a456-426614174000",
-                "role_code": "MANAGER",
-                "scope": {}
-            }
-        }
+
 
 
 class RoleAssignmentResponse(BaseModel):

@@ -8,6 +8,7 @@ starlette==0.44.0
 sqlalchemy==2.0.35
 alembic==1.16.4
 asyncpg==0.30.0
+aiofiles==23.1.0
 
 # Security & Authentication
 PyJWT==2.10.1

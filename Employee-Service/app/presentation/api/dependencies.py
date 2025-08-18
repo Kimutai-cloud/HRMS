@@ -17,6 +17,10 @@ from app.infrastructure.security.permission_service import PermissionService
 from app.domain.services import EmployeeDomainService, RoleBasedAccessControlService
 from app.application.use_case.employee_use_cases import EmployeeUseCase
 from app.application.use_case.role_use_cases import RoleUseCase
+from app.application.use_case.admin_review_use_cases import AdminReviewUseCase
+from app.application.use_case.document_use_cases import DocumentUseCase
+from app.infrastructure.database.repositories.document_repository import DocumentRepository
+from app.infrastructure.external.auth_service_client import auth_service_client
 
 # Security scheme
 security = HTTPBearer()
@@ -240,3 +244,36 @@ async def get_request_context(request: Request) -> dict:
         "endpoint": f"{request.method} {request.url.path}",
         "query_params": dict(request.query_params)
     }
+
+def get_document_repository(session: AsyncSession = Depends(get_db_session)) -> DocumentRepository:
+    return DocumentRepository(session)
+
+
+def get_document_use_case(
+    document_repository: DocumentRepository = Depends(get_document_repository),
+    employee_repository: EmployeeRepository = Depends(get_employee_repository),
+    event_repository: EventRepository = Depends(get_event_repository)
+) -> DocumentUseCase:
+    return DocumentUseCase(
+        document_repository=document_repository,
+        employee_repository=employee_repository,
+        event_repository=event_repository,
+        auth_service_client=auth_service_client
+    )
+
+
+def get_admin_review_use_case(
+    employee_repository: EmployeeRepository = Depends(get_employee_repository),
+    document_repository: DocumentRepository = Depends(get_document_repository),
+    role_repository: RoleRepository = Depends(get_role_repository),
+    event_repository: EventRepository = Depends(get_event_repository),
+    rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
+) -> AdminReviewUseCase:
+    return AdminReviewUseCase(
+        employee_repository=employee_repository,
+        document_repository=document_repository,
+        role_repository=role_repository,
+        event_repository=event_repository,
+        rbac_service=rbac_service,
+        auth_service_client=auth_service_client
+    )

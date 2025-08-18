@@ -26,7 +26,7 @@ class Employee:
     """Employee entity with enhanced verification workflow."""
     
     id: Optional[UUID]
-    user_id: Optional[UUID]  # Link to Auth Service user
+    user_id: Optional[UUID]  
     first_name: str
     last_name: str
     email: str
