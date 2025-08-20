@@ -6,7 +6,6 @@ import uuid
 
 Base = declarative_base()
 
-
 class EmployeeModel(Base):
     __tablename__ = "employees"
     
@@ -19,23 +18,13 @@ class EmployeeModel(Base):
     title = Column(String(255), nullable=True)
     department = Column(String(255), nullable=True)
     manager_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=True, index=True)
-    status = Column(SQLEnum('ACTIVE', 'INACTIVE', name='employment_status'), nullable=False, default='ACTIVE')
-    hired_at = Column(DateTime(timezone=True), nullable=True)
-    deactivated_at = Column(DateTime(timezone=True), nullable=True)
-    deactivation_reason = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    version = Column(Integer, nullable=False, default=1)
     
-    # Relationships
-    manager = relationship("EmployeeModel", remote_side=[id], backref="direct_reports")
-    
-    # Indexes for common queries
-    __table_args__ = (
-        # Index for manager queries
-        {'extend_existing': True}
+    employment_status = Column(
+        SQLEnum('ACTIVE', 'INACTIVE', name='employment_status'), 
+        nullable=False, 
+        default='ACTIVE'
     )
-
+    
     verification_status = Column(
         SQLEnum(
             'NOT_SUBMITTED', 'PENDING_DETAILS_REVIEW', 'PENDING_DOCUMENTS_REVIEW',
@@ -46,8 +35,16 @@ class EmployeeModel(Base):
         default='NOT_SUBMITTED',
         index=True
     )
-
-    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    
+    hired_at = Column(DateTime(timezone=True), nullable=True)
+    deactivated_at = Column(DateTime(timezone=True), nullable=True)
+    deactivation_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    
+    # FIXED: Enhanced verification workflow fields
+    submitted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     details_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
     details_reviewed_at = Column(DateTime(timezone=True), nullable=True)
     documents_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
@@ -56,33 +53,47 @@ class EmployeeModel(Base):
     role_assigned_at = Column(DateTime(timezone=True), nullable=True)
     final_approved_by = Column(UUID(as_uuid=True), nullable=True)
     final_approved_at = Column(DateTime(timezone=True), nullable=True)
-    final_rejected_by = Column(UUID(as_uuid=True), nullable=True)
-    final_rejected_at = Column(DateTime(timezone=True), nullable=True)
-
+    
+    rejection_reason = Column(Text, nullable=True)
+    rejected_by = Column(UUID(as_uuid=True), nullable=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
+    
+    manager = relationship("EmployeeModel", remote_side=[id], backref="direct_reports")
+    
+    __table_args__ = (
+        {'extend_existing': True}
+    )
 
 class RoleModel(Base):
     __tablename__ = "roles"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code = Column(SQLEnum('ADMIN', 'MANAGER', 'EMPLOYEE', name='role_code'), unique=True, nullable=False)
+    code = Column(
+        SQLEnum('ADMIN', 'MANAGER', 'EMPLOYEE', 'NEWCOMER', name='role_code'), 
+        unique=True, 
+        nullable=False
+    )
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    permissions = Column(JSON, nullable=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
+    is_active = Column(Boolean, nullable=False, default=True)
 
 class RoleAssignmentModel(Base):
     __tablename__ = "role_assignments"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)  # From Auth Service
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     role_id = Column(UUID(as_uuid=True), ForeignKey('roles.id', ondelete='CASCADE'), nullable=False)
-    scope = Column(JSON, nullable=False, default={})  # JSONB for future scope like department, project
+    scope = Column(JSON, nullable=False, default={})
+    assigned_by = Column(UUID(as_uuid=True), nullable=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(UUID(as_uuid=True), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
     
-    # Relationships
     role = relationship("RoleModel", backref="assignments")
     
-    # Unique constraint
     __table_args__ = (
         {'extend_existing': True}
     )
@@ -106,13 +117,13 @@ class AuditLogModel(Base):
     __tablename__ = "audit_logs"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_type = Column(String(100), nullable=False, index=True)  # employee, role_assignment
+    entity_type = Column(String(100), nullable=False, index=True)
     entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    action = Column(String(50), nullable=False)  # CREATE, UPDATE, DELETE, DEACTIVATE
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)  # Who performed the action
-    changes = Column(JSON, nullable=True)  # What changed
+    action = Column(String(50), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    changes = Column(JSON, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
-    ip_address = Column(String(45), nullable=True)  # IPv4/IPv6
+    ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
 
 
@@ -137,7 +148,6 @@ class EmployeeDocumentModel(Base):
     uploaded_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     uploaded_by = Column(UUID(as_uuid=True), nullable=False, index=True)
     
-    # Review fields
     reviewed_by = Column(UUID(as_uuid=True), nullable=True, index=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     review_status = Column(
@@ -155,15 +165,7 @@ class EmployeeDocumentModel(Base):
     is_required = Column(Boolean, nullable=False, default=True)
     display_order = Column(Integer, nullable=False, default=0)
     
-    # Relationships
     employee = relationship("EmployeeModel", backref="documents")
-    
-    # Indexes for common queries
-    __table_args__ = (
-        # Index for employee + document type queries
-        # Index for review status queries
-        {'extend_existing': True}
-    )
 
 
 class ApprovalStageModel(Base):
@@ -191,16 +193,9 @@ class ApprovalStageModel(Base):
     previous_status = Column(String(50), nullable=True)
     new_status = Column(String(50), nullable=False)
     
-    # Additional data (role assigned, etc.)
     additional_data = Column(JSON, nullable=True)
     
-    # Relationships
     employee = relationship("EmployeeModel", backref="approval_stages")
-    
-    # Indexes
-    __table_args__ = (
-        {'extend_existing': True}
-    )
 
 
 class NotificationModel(Base):
@@ -218,18 +213,11 @@ class NotificationModel(Base):
     )
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
-    data = Column(JSON, nullable=True)  # Additional context data
+    data = Column(JSON, nullable=True)
     
-    # Status tracking
     sent_at = Column(DateTime(timezone=True), nullable=True)
     read_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
     
-    # Email/SMS delivery tracking
     email_sent = Column(Boolean, nullable=False, default=False)
     email_sent_at = Column(DateTime(timezone=True), nullable=True)
-    
-    # Indexes
-    __table_args__ = (
-        {'extend_existing': True}
-    )

@@ -30,7 +30,7 @@ from app.presentation.schema.profile_schema import (
 
 
 class ProfileUseCase:
-    """Use cases for employee profile management and submission."""
+    """Enhanced use cases for employee profile management and submission."""
     
     def __init__(
         self,
@@ -45,33 +45,37 @@ class ProfileUseCase:
         self.auth_service_client = auth_service_client
     
     async def submit_employee_profile(self, request: SubmitProfileRequest) -> EmployeeProfileResponse:
-        """Submit employee profile for verification workflow."""
+        """Enhanced profile submission with proper Auth Service integration."""
         
-        # Check if employee already exists for this user
+        print(f"🚀 Starting profile submission for user {request.user_id}")
+        
         existing_employee = await self.employee_repository.get_by_user_id(request.user_id)
         if existing_employee:
             if not existing_employee.can_resubmit():
                 raise EmployeeAlreadyExistsException(
                     f"Employee profile already exists with status: {existing_employee.verification_status.value}"
                 )
-            # If can resubmit, we'll update the existing record
+            print(f"🔄 Updating existing employee profile for resubmission")
             return await self._update_existing_profile(existing_employee, request)
         
-        # Check if email is already used by another employee
         existing_by_email = await self.employee_repository.get_by_email(request.email)
-        if existing_by_email:
+        if existing_by_email and existing_by_email.user_id != request.user_id:
             raise EmployeeAlreadyExistsException("An employee with this email already exists")
         
-        # Validate manager if specified
         if request.manager_id:
             manager = await self.employee_repository.get_by_id(request.manager_id)
             if not manager or not manager.is_active():
                 raise EmployeeValidationException("Selected manager is not valid or active")
+            
+            if await self.employee_repository.check_circular_managership(
+                employee_id=uuid4(), 
+                manager_id=request.manager_id
+            ):
+                raise EmployeeValidationException("Manager assignment would create circular relationship")
         
-        # Create new employee
         employee = Employee(
             id=uuid4(),
-            user_id=request.user_id,
+            user_id=request.user_id, 
             first_name=request.first_name,
             last_name=request.last_name,
             email=request.email,
@@ -81,26 +85,36 @@ class ProfileUseCase:
             manager_id=request.manager_id,
             employment_status=EmploymentStatus.ACTIVE,
             verification_status=VerificationStatus.PENDING_DETAILS_REVIEW,
-            hired_at=None,  # Will be set when verified
+            hired_at=None,  
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
-            submitted_at=datetime.utcnow(),
             version=1
         )
         
-        # Submit profile (sets verification status and submitted_at)
         employee.submit_profile(request.user_id)
         
-        # Save employee
-        created_employee = await self.employee_repository.create(employee)
+        try:
+            created_employee = await self.employee_repository.create(employee)
+            print(f"✅ Employee created in database: {created_employee.id}")
+        except Exception as e:
+            print(f"❌ Failed to create employee: {e}")
+            raise EmployeeValidationException(f"Failed to create employee profile: {str(e)}")
         
-        # Auto-assign NEWCOMER role
-        await self._assign_newcomer_role(request.user_id)
+        try:
+            await self._assign_newcomer_role(request.user_id)
+            print(f"✅ NEWCOMER role assigned to user {request.user_id}")
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to assign NEWCOMER role: {e}")
         
-        # Update Auth Service status
-        await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
-        
-        # Emit domain event
+        try:
+            success = await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
+            if success:
+                print(f"✅ Auth Service status updated to PENDING_VERIFICATION")
+            else:
+                print(f"⚠️  Warning: Auth Service sync failed (non-critical)")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync error (non-critical): {e}")
+
         event = EmployeeCreatedEvent(
             employee_id=created_employee.id,
             employee_data={
@@ -110,14 +124,15 @@ class ProfileUseCase:
                 "last_name": request.last_name,
                 "department": request.department,
                 "verification_status": created_employee.verification_status.value,
-                "submitted_at": created_employee.submitted_at.isoformat()
+                "submitted_at": created_employee.submitted_at.isoformat() if created_employee.submitted_at else None
             }
         )
         await self.event_repository.save_event(event)
         
-        print(f"✅ Employee profile submitted: {created_employee.email}")
-        print(f"🔄 Status: {created_employee.verification_status.value}")
+        print(f"🎉 Profile submission completed successfully!")
+        print(f"📋 Employee ID: {created_employee.id}")
         print(f"👤 User ID: {request.user_id}")
+        print(f"🔄 Status: {created_employee.verification_status.value}")
         
         return await self._to_profile_response(created_employee)
     
@@ -133,18 +148,25 @@ class ProfileUseCase:
                 f"Cannot resubmit profile with status: {existing_employee.verification_status.value}"
             )
         
+        print(f"🔄 Resubmitting profile for employee {existing_employee.id}")
         return await self._update_existing_profile(existing_employee, request)
     
     async def _update_existing_profile(self, employee: Employee, request: SubmitProfileRequest) -> EmployeeProfileResponse:
         """Update existing employee profile for resubmission."""
         
-        # Validate manager if specified
         if request.manager_id and request.manager_id != employee.manager_id:
             manager = await self.employee_repository.get_by_id(request.manager_id)
             if not manager or not manager.is_active():
                 raise EmployeeValidationException("Selected manager is not valid or active")
+            
+            if await self.employee_repository.check_circular_managership(
+                employee_id=employee.id,
+                manager_id=request.manager_id
+            ):
+                raise EmployeeValidationException("Manager assignment would create circular relationship")
         
-        # Update employee details
+        previous_status = employee.verification_status.value
+        
         employee.first_name = request.first_name
         employee.last_name = request.last_name
         employee.phone = request.phone
@@ -152,18 +174,20 @@ class ProfileUseCase:
         employee.department = request.department
         employee.manager_id = request.manager_id
         employee.updated_at = datetime.utcnow()
+        employee.version += 1
         
-        # Submit profile (resets verification status and clears rejection info)
         employee.submit_profile(request.user_id)
         
-        # Save updated employee
         updated_employee = await self.employee_repository.update(employee)
         
-        # Update Auth Service status
-        await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
+        try:
+            await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
+            print(f"✅ Auth Service status updated after resubmission")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after resubmission: {e}")
         
-        print(f"✅ Employee profile resubmitted: {updated_employee.email}")
-        print(f"🔄 Status: {updated_employee.verification_status.value}")
+        print(f"🔄 Profile resubmitted: {updated_employee.email}")
+        print(f"📊 Status change: {previous_status} → {updated_employee.verification_status.value}")
         
         return await self._to_profile_response(updated_employee)
     
@@ -183,7 +207,6 @@ class ProfileUseCase:
         if not employee:
             raise EmployeeNotFoundException("Employee profile not found")
         
-        # Calculate progress percentage
         status_progress = {
             VerificationStatus.NOT_SUBMITTED: 0,
             VerificationStatus.PENDING_DETAILS_REVIEW: 25,
@@ -228,15 +251,14 @@ class ProfileUseCase:
             next_steps=next_steps,
             required_actions=required_actions,
             can_resubmit=employee.can_resubmit(),
-            rejection_reason=employee.rejection_reason,
-            rejected_at=employee.rejected_at,
+            rejection_reason=getattr(employee, 'rejection_reason', None),
+            rejected_at=getattr(employee, 'rejected_at', None),
             **completed_stages
         )
     
     async def upload_document(self, request: DocumentUploadRequest) -> DocumentResponse:
-        """Upload document for employee profile."""
+        """Upload document for employee profile verification."""
         
-        # Create document entity
         document = EmployeeDocument(
             id=uuid4(),
             employee_id=request.employee_id,
@@ -250,10 +272,6 @@ class ProfileUseCase:
             is_required=request.is_required,
             review_status=DocumentReviewStatus.PENDING
         )
-        
-        # Save document (this would go to a document repository)
-        # For now, we'll return the created document
-        # In a real implementation, you'd have a DocumentRepository
         
         return DocumentResponse(
             id=document.id,
@@ -276,8 +294,6 @@ class ProfileUseCase:
         if not employee:
             raise EmployeeNotFoundException("Employee profile not found")
         
-        # This would query a document repository
-        # For now, return empty list
         return []
     
     async def delete_user_document(self, document_id: UUID, user_id: UUID) -> bool:
@@ -297,15 +313,13 @@ class ProfileUseCase:
                 "Document deletion not allowed for current verification status"
             )
         
-        # This would delete from document repository and file system
-        # For now, return True
         return True
     
     async def get_departments(self) -> List[DepartmentResponse]:
         """Get list of departments for profile selection."""
         
-        # This would typically query a departments table or be configured
-        # For now, return hardcoded departments
+        # In a real implementation, this would query a departments table
+        # For now, return hardcoded departments with enhanced information
         departments = [
             DepartmentResponse(name="Engineering", description="Software development and technical operations"),
             DepartmentResponse(name="Human Resources", description="People operations and talent management"),
@@ -314,7 +328,9 @@ class ProfileUseCase:
             DepartmentResponse(name="Sales", description="Sales and business development"),
             DepartmentResponse(name="Operations", description="Business operations and support"),
             DepartmentResponse(name="Legal", description="Legal and compliance"),
-            DepartmentResponse(name="IT", description="Information technology and infrastructure")
+            DepartmentResponse(name="IT", description="Information technology and infrastructure"),
+            DepartmentResponse(name="Product", description="Product management and strategy"),
+            DepartmentResponse(name="Customer Success", description="Customer support and success")
         ]
         
         return departments
@@ -322,61 +338,92 @@ class ProfileUseCase:
     async def get_managers(self, department_filter: Optional[str] = None) -> List[ManagerOptionResponse]:
         """Get list of managers for profile selection."""
         
-        # Query for managers (employees with MANAGER role and VERIFIED status)
-        # This would typically join with role assignments
-        # For now, return sample managers
+        # Query for active employees who could be managers
+        # This is a simplified implementation - in reality you'd want to:
+        # 1. Query employees with MANAGER role
+        # 2. Filter by department if specified
+        # 3. Only show active, verified employees
         
-        managers = []
-        
-        # This would be a proper database query in real implementation
-        # managers = await self.employee_repository.get_managers_by_department(department_filter)
-        
-        return managers
+        try:
+            result = await self.employee_repository.list_employees(
+                page=1,
+                size=100,
+                status=EmploymentStatus.ACTIVE
+            )
+            
+            managers = []
+            for employee in result["employees"]:
+                if employee.verification_status == VerificationStatus.VERIFIED:
+                    if department_filter and employee.department != department_filter:
+                        continue
+                    
+                    managers.append(ManagerOptionResponse(
+                        id=employee.id,
+                        full_name=employee.get_full_name(),
+                        title=employee.title or "Manager",
+                        department=employee.department or "Unassigned",
+                        email=employee.email
+                    ))
+            
+            return managers
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to load managers: {e}")
+            return []
     
     async def _assign_newcomer_role(self, user_id: UUID):
         """Auto-assign NEWCOMER role to new user."""
         
-        # Get NEWCOMER role
-        newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
-        if not newcomer_role:
-            print("⚠️  NEWCOMER role not found - skipping auto-assignment")
-            return
-        
-        # Check if user already has the role
-        existing_assignment = await self.role_repository.get_role_assignment(user_id, newcomer_role.id)
-        if existing_assignment:
-            print(f"✅ User {user_id} already has NEWCOMER role")
-            return
-        
-        # Create role assignment
-        from app.core.entities.role import RoleAssignment
-        assignment = RoleAssignment(
-            id=uuid4(),
-            user_id=user_id,
-            role_id=newcomer_role.id,
-            scope={},
-            created_at=datetime.utcnow()
-        )
-        
-        await self.role_repository.assign_role(assignment)
-        print(f"✅ NEWCOMER role assigned to user {user_id}")
+        try:
+            newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
+            if not newcomer_role:
+                print("⚠️  NEWCOMER role not found in database - skipping auto-assignment")
+                return
+            
+            existing_assignment = await self.role_repository.get_role_assignment(user_id, newcomer_role.id)
+            if existing_assignment:
+                print(f"✅ User {user_id} already has NEWCOMER role")
+                return
+            
+            from app.core.entities.role import RoleAssignment
+            assignment = RoleAssignment(
+                id=uuid4(),
+                user_id=user_id,
+                role_id=newcomer_role.id,
+                scope={},
+                created_at=datetime.utcnow()
+            )
+            
+            await self.role_repository.assign_role(assignment)
+            print(f"✅ NEWCOMER role assigned to user {user_id}")
+            
+        except Exception as e:
+            print(f"❌ Error assigning NEWCOMER role to user {user_id}: {e}")
+            raise 
     
-    async def _sync_auth_service_status(self, user_id: UUID, status: str):
+    async def _sync_auth_service_status(self, user_id: UUID, status: str) -> bool:
         """Sync employee profile status with Auth Service."""
         
         try:
             success = await self.auth_service_client.update_user_profile_status(user_id, status)
             if success:
                 print(f"✅ Auth Service synced: User {user_id} status → {status}")
+                return True
             else:
-                print(f"⚠️  Auth Service sync failed for user {user_id}")
+                print(f"⚠️  Auth Service sync returned failure for user {user_id}")
+                return False
         except Exception as e:
-            print(f"❌ Auth Service sync error: {e}")
+            print(f"❌ Auth Service sync error for user {user_id}: {e}")
+            return False
     
     def _get_status_guidance(self, status: VerificationStatus) -> tuple[List[str], List[str]]:
         """Get next steps and required actions for verification status."""
         
         guidance = {
+            VerificationStatus.NOT_SUBMITTED: (
+                ["Complete your employee profile to get started"],
+                ["Fill in all required profile information", "Submit your profile for review"]
+            ),
             VerificationStatus.PENDING_DETAILS_REVIEW: (
                 ["Admin is reviewing your profile details", "You will be notified once review is complete"],
                 []
@@ -399,7 +446,7 @@ class ProfileUseCase:
             ),
             VerificationStatus.REJECTED: (
                 ["Your profile was rejected", "Review the feedback and resubmit with corrections"],
-                ["Address the rejection feedback", "Resubmit your corrected profile"]
+                ["Address the rejection feedback", "Update your profile information", "Resubmit your corrected profile"]
             )
         }
         
@@ -409,7 +456,7 @@ class ProfileUseCase:
         """Get human-readable stage name."""
         
         stage_names = {
-            VerificationStatus.NOT_SUBMITTED: "Not Submitted",
+            VerificationStatus.NOT_SUBMITTED: "Not Started",
             VerificationStatus.PENDING_DETAILS_REVIEW: "Details Review",
             VerificationStatus.PENDING_DOCUMENTS_REVIEW: "Documents Review",
             VerificationStatus.PENDING_ROLE_ASSIGNMENT: "Role Assignment",
@@ -423,10 +470,8 @@ class ProfileUseCase:
     async def _to_profile_response(self, employee: Employee) -> EmployeeProfileResponse:
         """Convert employee entity to profile response."""
         
-        # Get verification status details
         verification_details = await self.get_profile_verification_status(employee.user_id)
         
-        # Get documents (would be from document repository)
         documents = await self.get_user_documents(employee.user_id)
         
         return EmployeeProfileResponse(
@@ -440,12 +485,10 @@ class ProfileUseCase:
             department=employee.department,
             manager_id=employee.manager_id,
             verification_status=employee.verification_status,
-            submitted_at=employee.submitted_at,
+            submitted_at=getattr(employee, 'submitted_at', None),
             created_at=employee.created_at,
             updated_at=employee.updated_at,
             version=employee.version,
             documents=documents,
             verification_details=verification_details
         )
-    
-    

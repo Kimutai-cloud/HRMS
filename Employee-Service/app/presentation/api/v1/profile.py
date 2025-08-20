@@ -1,11 +1,15 @@
+import io
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from uuid import UUID, uuid4
 import os
 import aiofiles
 from pathlib import Path
+import mimetypes
 
 from app.application.use_case.profile_use_cases import ProfileUseCase
+from app.application.use_case.document_use_cases import DocumentUseCase
 from app.infrastructure.database.repositories.audit_repository import AuditRepository
 from app.core.entities.user_claims import UserClaims
 from app.core.entities.document import DocumentType
@@ -14,15 +18,17 @@ from app.presentation.schema.profile_schema import (
     EmployeeProfileResponse,
     ProfileVerificationStatusResponse,
     DocumentResponse,
-    DocumentUploadRequest,
     DepartmentResponse,
     ManagerOptionResponse
 )
 from app.presentation.schema.common_schema import SuccessResponse
 from app.presentation.api.dependencies import (
     get_profile_use_case,
+    get_document_use_case,
     get_audit_repository,
     get_current_user_claims,
+    require_profile_completion,
+    require_newcomer_access,
     allow_newcomer_access,
     get_request_context
 )
@@ -49,7 +55,6 @@ async def submit_employee_profile(
     Available to users with NOT_STARTED or REJECTED profile status.
     """
     
-    # Check if user can submit profile
     if not (current_user.needs_profile_completion() or current_user.is_profile_rejected()):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -57,7 +62,6 @@ async def submit_employee_profile(
         )
     
     try:
-        # Convert request to DTO
         from app.application.dto.profile_dto import SubmitProfileRequest
         dto = SubmitProfileRequest(
             user_id=current_user.user_id,
@@ -70,10 +74,8 @@ async def submit_employee_profile(
             manager_id=request.manager_id
         )
         
-        # Submit profile
         employee_profile = await profile_use_case.submit_employee_profile(dto)
         
-        # Audit log
         await audit_repository.log_action(
             entity_type="employee",
             entity_id=employee_profile.id,
@@ -140,7 +142,6 @@ async def get_my_profile(
         return profile
         
     except EmployeeNotFoundException as e:
-        # Return helpful message for users who haven't submitted profile yet
         if current_user.needs_profile_completion():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -158,92 +159,100 @@ async def upload_document(
     is_required: bool = Form(True),
     notes: Optional[str] = Form(None),
     file: UploadFile = File(...),
-    current_user: UserClaims = Depends(allow_newcomer_access),
+    current_user: UserClaims = Depends(require_newcomer_access),
     profile_use_case: ProfileUseCase = Depends(get_profile_use_case),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case),
     audit_repository: AuditRepository = Depends(get_audit_repository),
     request_context: dict = Depends(get_request_context)
 ):
     """
     Upload document for employee profile verification.
-    Available to users with pending verification status.
+    Enhanced with proper file handling and validation.
     """
     
-    # Validate file type
-    allowed_types = settings.ALLOWED_FILE_TYPES
-    file_extension = file.filename.split(".")[-1].lower() if "." in file.filename else ""
-    
-    if file_extension not in allowed_types:
+    # FIXED: Enhanced file validation
+    if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type '{file_extension}' not allowed. Allowed types: {', '.join(allowed_types)}"
+            detail="File name is required"
         )
     
+    # Validate file type
+    file_extension = Path(file.filename).suffix.lower().lstrip('.')
+    if file_extension not in settings.ALLOWED_FILE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{file_extension}' not allowed. Allowed types: {', '.join(settings.ALLOWED_FILE_TYPES)}"
+        )
+    
+    # Read file content for size validation
+    file_content = await file.read()
+    
     # Validate file size
-    if file.size > settings.MAX_FILE_SIZE:
+    if len(file_content) > settings.MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File size exceeds maximum allowed size of {settings.MAX_FILE_SIZE // (1024*1024)}MB"
         )
+    
+    # Validate MIME type
+    detected_mime = mimetypes.guess_type(file.filename)[0] or "application/octet-stream"
+    if file.content_type and file.content_type != detected_mime:
+        print(f"⚠️  MIME type mismatch: uploaded={file.content_type}, detected={detected_mime}")
     
     try:
         # Get employee profile
         employee_profile = await profile_use_case.get_employee_profile_by_user_id(current_user.user_id)
         
         # Check if user can upload documents
-        if not (employee_profile.verification_status.value.startswith("PENDING") or 
-                employee_profile.verification_status.value == "REJECTED"):
+        if not employee_profile.verification_status.value.startswith("PENDING") and \
+           employee_profile.verification_status.value != "REJECTED":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Document uploads not allowed for current verification status"
+                detail=f"Document uploads not allowed for verification status: {employee_profile.verification_status.value}"
             )
         
-        # Create upload directory if it doesn't exist
-        upload_dir = Path(settings.UPLOAD_DIR) / "employee_documents" / str(employee_profile.id)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate unique file name
-        file_id = uuid4()
-        file_extension = file.filename.split(".")[-1] if "." in file.filename else "bin"
-        saved_filename = f"{file_id}.{file_extension}"
-        file_path = upload_dir / saved_filename
-        
-        # Save file
-        async with aiofiles.open(file_path, "wb") as f:
-            content = await file.read()
-            await f.write(content)
-        
-        # Create document record
-        from app.application.dto.profile_dto import DocumentUploadRequest as DocumentUploadDTO
-        dto = DocumentUploadDTO(
+        # FIXED: Upload document using document use case
+        uploaded_document = await document_use_case.upload_document(
             employee_id=employee_profile.id,
             uploaded_by=current_user.user_id,
             document_type=document_type,
+            file_content=file_content,
             file_name=file.filename,
-            file_path=str(file_path),
-            file_size=file.size,
-            mime_type=file.content_type or "application/octet-stream",
+            mime_type=detected_mime,
             is_required=is_required,
             notes=notes
         )
         
-        document = await profile_use_case.upload_document(dto)
-        
         # Audit log
         await audit_repository.log_action(
             entity_type="employee_document",
-            entity_id=document.id,
+            entity_id=uploaded_document.id,
             action="DOCUMENT_UPLOADED",
             user_id=current_user.user_id,
             changes={
                 "document_type": document_type.value,
                 "file_name": file.filename,
-                "file_size": file.size
+                "file_size": len(file_content),
+                "mime_type": detected_mime
             },
             ip_address=request_context.get("ip_address"),
             user_agent=request_context.get("user_agent")
         )
         
-        return document
+        return DocumentResponse(
+            id=uploaded_document.id,
+            document_type=uploaded_document.document_type,
+            display_name=uploaded_document.get_display_name(),
+            file_name=uploaded_document.file_name,
+            file_size=uploaded_document.file_size,
+            mime_type=uploaded_document.mime_type,
+            uploaded_at=uploaded_document.uploaded_at,
+            review_status=uploaded_document.review_status,
+            review_notes=uploaded_document.review_notes,
+            reviewed_at=uploaded_document.reviewed_at,
+            is_required=uploaded_document.is_required
+        )
         
     except EmployeeNotFoundException as e:
         raise HTTPException(
@@ -251,9 +260,6 @@ async def upload_document(
             detail="Employee profile not found. Please submit your profile first."
         )
     except Exception as e:
-        # Clean up file if document creation failed
-        if 'file_path' in locals() and file_path.exists():
-            file_path.unlink()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Document upload failed: {str(e)}"
@@ -262,17 +268,35 @@ async def upload_document(
 
 @router.get("/documents", response_model=List[DocumentResponse])
 async def get_my_documents(
-    current_user: UserClaims = Depends(allow_newcomer_access),
-    profile_use_case: ProfileUseCase = Depends(get_profile_use_case)
+    current_user: UserClaims = Depends(require_newcomer_access),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case)
 ):
     """
     Get all documents uploaded by current user.
-    Available to users with submitted or verified profiles.
     """
     
     try:
-        documents = await profile_use_case.get_user_documents(current_user.user_id)
-        return documents
+        documents = await document_use_case.get_employee_documents(
+            employee_id=None,  # Will be resolved by user_id in use case
+            requester_user_id=current_user.user_id
+        )
+        
+        return [
+            DocumentResponse(
+                id=doc.id,
+                document_type=doc.document_type,
+                display_name=doc.get_display_name(),
+                file_name=doc.file_name,
+                file_size=doc.file_size,
+                mime_type=doc.mime_type,
+                uploaded_at=doc.uploaded_at,
+                review_status=doc.review_status,
+                review_notes=doc.review_notes,
+                reviewed_at=doc.reviewed_at,
+                is_required=doc.is_required
+            )
+            for doc in documents
+        ]
         
     except EmployeeNotFoundException as e:
         raise HTTPException(
@@ -281,11 +305,45 @@ async def get_my_documents(
         )
 
 
+@router.get("/documents/{document_id}/download")
+async def download_my_document(
+    document_id: UUID,
+    current_user: UserClaims = Depends(require_newcomer_access),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case)
+):
+    """
+    Download user's own document.
+    """
+    
+    try:
+        content, filename, mime_type = await document_use_case.download_document(
+            document_id=document_id,
+            requester_user_id=current_user.user_id
+        )
+        
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=mime_type,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied"
+        )
+
+
 @router.delete("/documents/{document_id}", response_model=SuccessResponse)
 async def delete_document(
     document_id: UUID,
-    current_user: UserClaims = Depends(allow_newcomer_access),
-    profile_use_case: ProfileUseCase = Depends(get_profile_use_case),
+    current_user: UserClaims = Depends(require_newcomer_access),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case),
     audit_repository: AuditRepository = Depends(get_audit_repository),
     request_context: dict = Depends(get_request_context)
 ):
@@ -295,9 +353,9 @@ async def delete_document(
     """
     
     try:
-        success = await profile_use_case.delete_user_document(
+        success = await document_use_case.delete_document(
             document_id=document_id,
-            user_id=current_user.user_id
+            requester_user_id=current_user.user_id
         )
         
         if success:
@@ -326,7 +384,6 @@ async def delete_document(
         )
 
 
-# Data endpoints for dropdowns
 
 @router.get("/departments", response_model=List[DepartmentResponse])
 async def get_departments(

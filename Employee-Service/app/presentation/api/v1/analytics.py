@@ -24,7 +24,7 @@ async def get_admin_analytics(
     """Get comprehensive analytics for admin dashboard."""
     
     # Calculate date range
-    end_date = datetime.timezone.utc()
+    end_date = datetime.now(datetime.timezone.utc())
     start_date = end_date - timedelta(days=days)
     
     # Get verification metrics
@@ -53,7 +53,7 @@ async def get_verification_metrics(
 ):
     """Get detailed verification process metrics."""
     
-    end_date = datetime.timezone.utc()
+    end_date = datetime.now(datetime.timezone.utc())
     start_date = end_date - timedelta(days=days)
     
     metrics = await _get_verification_metrics(employee_repository, start_date, end_date)

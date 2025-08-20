@@ -459,7 +459,7 @@ class NotificationService:
                 "title": title,
                 "message": message,
                 "data": data or {},
-                "created_at": datetime.timezone.utc()
+                "created_at": ddatetime.now(datetime.timezone.utc())
             }
             
             result = await session.execute(
@@ -649,7 +649,7 @@ class NotificationService:
                     NotificationModel.id == notification_id,
                     NotificationModel.user_id == user_id
                 )
-                .values(read_at=datetime.timezone.utc())
+                .values(read_at=datetime.now(datetime.timezone.utc()))
             )
             await session.commit()
             

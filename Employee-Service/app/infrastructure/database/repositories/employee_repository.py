@@ -2,11 +2,10 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func, or_, and_, text, case, cast, asc, desc, null, not_     
+from sqlalchemy import select, update, delete, func, or_, and_, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 
-from app.core.entities.employee import Employee, EmploymentStatus
 from app.core.entities.employee import Employee, EmploymentStatus, VerificationStatus
 from app.core.interfaces.repositories import EmployeeRepositoryInterface
 from app.core.exceptions.employee_exceptions import EmployeeAlreadyExistsException
@@ -18,8 +17,10 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         self.session = session
     
     async def create(self, employee: Employee) -> Employee:
+        """Create a new employee with proper field mapping."""
         db_employee = EmployeeModel(
             id=employee.id,
+            user_id=employee.user_id,
             first_name=employee.first_name,
             last_name=employee.last_name,
             email=employee.email,
@@ -27,13 +28,20 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             title=employee.title,
             department=employee.department,
             manager_id=employee.manager_id,
-            status=employee.status.value,
+            employment_status=employee.employment_status.value,  
+            verification_status=employee.verification_status.value,
             hired_at=employee.hired_at,
             deactivated_at=employee.deactivated_at,
             deactivation_reason=employee.deactivation_reason,
             created_at=employee.created_at,
             updated_at=employee.updated_at,
-            version=employee.version
+            version=employee.version,
+            submitted_at=getattr(employee, 'submitted_at', None),
+            final_approved_by=getattr(employee, 'final_approved_by', None),
+            final_approved_at=getattr(employee, 'final_approved_at', None),
+            rejection_reason=getattr(employee, 'rejection_reason', None),
+            rejected_by=getattr(employee, 'rejected_by', None),
+            rejected_at=getattr(employee, 'rejected_at', None)
         )
         
         try:
@@ -45,9 +53,12 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             await self.session.rollback()
             if "email" in str(e):
                 raise EmployeeAlreadyExistsException("Employee with this email already exists")
+            elif "user_id" in str(e):
+                raise EmployeeAlreadyExistsException("Employee profile already exists for this user")
             raise
     
     async def get_by_id(self, employee_id: UUID) -> Optional[Employee]:
+        """Get employee by ID with manager relationship."""
         result = await self.session.execute(
             select(EmployeeModel)
             .options(selectinload(EmployeeModel.manager))
@@ -57,6 +68,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         return self._to_entity(db_employee) if db_employee else None
     
     async def get_by_email(self, email: str) -> Optional[Employee]:
+        """Get employee by email."""
         result = await self.session.execute(
             select(EmployeeModel)
             .where(EmployeeModel.email == email.lower())
@@ -64,7 +76,18 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         db_employee = result.scalar_one_or_none()
         return self._to_entity(db_employee) if db_employee else None
     
+    async def get_by_user_id(self, user_id: UUID) -> Optional[Employee]:
+        """Get employee by user ID - CRITICAL for Auth Service integration."""
+        result = await self.session.execute(
+            select(EmployeeModel)
+            .options(selectinload(EmployeeModel.manager))
+            .where(EmployeeModel.user_id == user_id)
+        )
+        db_employee = result.scalar_one_or_none()
+        return self._to_entity(db_employee) if db_employee else None
+    
     async def get_by_manager_id(self, manager_id: UUID) -> List[Employee]:
+        """Get all employees under a specific manager."""
         result = await self.session.execute(
             select(EmployeeModel)
             .where(EmployeeModel.manager_id == manager_id)
@@ -74,6 +97,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         return [self._to_entity(emp) for emp in db_employees]
     
     async def update(self, employee: Employee) -> Employee:
+        """Update employee with proper field mapping."""
         result = await self.session.execute(
             select(EmployeeModel).where(EmployeeModel.id == employee.id)
         )
@@ -82,7 +106,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         if not db_employee:
             raise ValueError("Employee not found")
         
-        db_employee.user_id = employee.user_id  
+        db_employee.user_id = employee.user_id
         db_employee.first_name = employee.first_name
         db_employee.last_name = employee.last_name
         db_employee.email = employee.email
@@ -90,14 +114,14 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         db_employee.title = employee.title
         db_employee.department = employee.department
         db_employee.manager_id = employee.manager_id
-        db_employee.status = employee.employment_status.value
-        db_employee.verification_status = employee.verification_status.value 
+        db_employee.employment_status = employee.employment_status.value  
+        db_employee.verification_status = employee.verification_status.value
         db_employee.hired_at = employee.hired_at
         db_employee.deactivated_at = employee.deactivated_at
         db_employee.deactivation_reason = employee.deactivation_reason
         db_employee.updated_at = employee.updated_at
         db_employee.version = employee.version
-
+        
         if hasattr(employee, 'submitted_at'):
             db_employee.submitted_at = employee.submitted_at
         if hasattr(employee, 'final_approved_by'):
@@ -116,14 +140,14 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         return self._to_entity(db_employee)
     
     async def delete(self, employee_id: UUID) -> bool:
+        """Soft delete by setting status to INACTIVE."""
         result = await self.session.execute(
             select(EmployeeModel).where(EmployeeModel.id == employee_id)
         )
         db_employee = result.scalar_one_or_none()
         
         if db_employee:
-            # Soft delete by setting status to INACTIVE
-            db_employee.status = EmploymentStatus.INACTIVE.value
+            db_employee.employment_status = EmploymentStatus.INACTIVE.value  
             db_employee.deactivated_at = datetime.utcnow()
             db_employee.updated_at = datetime.utcnow()
             db_employee.version += 1
@@ -143,14 +167,14 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         sort_by: str = "created_at",
         sort_order: str = "desc"
     ) -> Dict[str, Any]:
-        # Build base query
+        """List employees with pagination and filtering."""
+        
         query = select(EmployeeModel).options(selectinload(EmployeeModel.manager))
         
-        # Apply filters
         conditions = []
         
         if status:
-            conditions.append(EmployeeModel.status == status.value)
+            conditions.append(EmployeeModel.employment_status == status.value) 
         
         if department:
             conditions.append(EmployeeModel.department.ilike(f"%{department}%"))
@@ -172,23 +196,19 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         if conditions:
             query = query.where(and_(*conditions))
         
-        # Count total
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.session.execute(count_query)
         total = total_result.scalar()
         
-        # Apply sorting
         sort_column = getattr(EmployeeModel, sort_by, EmployeeModel.created_at)
         if sort_order.lower() == "desc":
             query = query.order_by(sort_column.desc())
         else:
             query = query.order_by(sort_column.asc())
         
-        # Apply pagination
         offset = (page - 1) * size
         query = query.offset(offset).limit(size)
         
-        # Execute query
         result = await self.session.execute(query)
         db_employees = result.scalars().all()
         
@@ -202,16 +222,16 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         }
     
     async def get_employee_count(self) -> int:
+        """Get total active employee count."""
         result = await self.session.execute(
             select(func.count(EmployeeModel.id))
-            .where(EmployeeModel.status == EmploymentStatus.ACTIVE.value)
+            .where(EmployeeModel.employment_status == EmploymentStatus.ACTIVE.value)
         )
         return result.scalar()
     
     async def check_circular_managership(self, employee_id: UUID, manager_id: UUID) -> bool:
-        """Check if assigning manager would create circular relationship using recursive CTE."""
+        """Check if assigning manager would create circular relationship."""
         
-        # Recursive CTE to check manager hierarchy
         cte_query = text("""
             WITH RECURSIVE manager_hierarchy AS (
                 -- Base case: start with the proposed manager
@@ -240,7 +260,72 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         
         return count > 0
     
+    async def update_employee_profile_status(self, user_id: UUID, status: str) -> bool:
+        """Update user's employee profile status via user_id."""
+        result = await self.session.execute(
+            select(EmployeeModel).where(EmployeeModel.user_id == user_id)
+        )
+        db_employee = result.scalar_one_or_none()
+        
+        if not db_employee:
+            return False
+        
+        status_mapping = {
+            "NOT_STARTED": VerificationStatus.NOT_SUBMITTED,
+            "PENDING_VERIFICATION": VerificationStatus.PENDING_DETAILS_REVIEW, 
+            "VERIFIED": VerificationStatus.VERIFIED,
+            "REJECTED": VerificationStatus.REJECTED
+        }
+        
+        mapped_status = status_mapping.get(status)
+        if mapped_status:
+            db_employee.verification_status = mapped_status.value
+            db_employee.updated_at = func.now()
+            await self.session.commit()
+            return True
+        
+        return False
+    
+    async def get_employees_by_profile_status(self, status: str, limit: int = 100) -> List[Employee]:
+        """Get employees by their profile status."""
+        
+        status_mapping = {
+            "NOT_STARTED": VerificationStatus.NOT_SUBMITTED,
+            "PENDING_VERIFICATION": VerificationStatus.PENDING_DETAILS_REVIEW,
+            "VERIFIED": VerificationStatus.VERIFIED, 
+            "REJECTED": VerificationStatus.REJECTED
+        }
+        
+        mapped_status = status_mapping.get(status)
+        if not mapped_status:
+            return []
+        
+        result = await self.session.execute(
+            select(EmployeeModel)
+            .where(EmployeeModel.verification_status == mapped_status.value)
+            .limit(limit)
+            .order_by(EmployeeModel.created_at.desc())
+        )
+        db_employees = result.scalars().all()
+        return [self._to_entity(db_employee) for db_employee in db_employees]
+    
+    async def get_employees_by_verification_status(
+        self, 
+        status: VerificationStatus, 
+        limit: int = 100
+    ) -> List[Employee]:
+        """Get employees by verification status using enum."""
+        result = await self.session.execute(
+            select(EmployeeModel)
+            .where(EmployeeModel.verification_status == status.value)
+            .limit(limit)
+            .order_by(EmployeeModel.submitted_at.asc()) 
+        )
+        db_employees = result.scalars().all()
+        return [self._to_entity(db_employee) for db_employee in db_employees]
+    
     def _to_entity(self, db_employee: EmployeeModel) -> Employee:
+        """Convert database model to entity with proper field mapping."""
         return Employee(
             id=db_employee.id,
             user_id=db_employee.user_id,
@@ -251,7 +336,8 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             title=db_employee.title,
             department=db_employee.department,
             manager_id=db_employee.manager_id,
-            status=EmploymentStatus(db_employee.status),
+            employment_status=EmploymentStatus(db_employee.employment_status), 
+            verification_status=VerificationStatus(db_employee.verification_status),
             hired_at=db_employee.hired_at,
             deactivated_at=db_employee.deactivated_at,
             deactivation_reason=db_employee.deactivation_reason,
@@ -265,61 +351,3 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             rejected_by=getattr(db_employee, 'rejected_by', None),
             rejected_at=getattr(db_employee, 'rejected_at', None)
         )
-    
-    
-    async def get_by_user_id(self, user_id: UUID) -> Optional[Employee]:
-        """Get employee by user ID."""
-        result = await self.session.execute(
-            select(EmployeeModel)
-            .options(selectinload(EmployeeModel.manager))
-            .where(EmployeeModel.user_id == user_id)
-        )
-        db_employee = result.scalar_one_or_none()
-        return self._to_entity(db_employee) if db_employee else None
-
-    async def update_employee_profile_status(self, user_id: UUID, status: str) -> bool:
-        """Update user's employee profile status."""
-        result = await self.session.execute(
-            select(EmployeeModel).where(EmployeeModel.user_id == user_id)
-        )
-        db_employee = result.scalar_one_or_none()
-        
-        if not db_employee:
-            return False
-        
-        # Map status strings to VerificationStatus enum values
-        status_mapping = {
-            "NOT_STARTED": "NOT_SUBMITTED",
-            "PENDING_VERIFICATION": "PENDING_DETAILS_REVIEW", 
-            "VERIFIED": "VERIFIED",
-            "REJECTED": "REJECTED"
-        }
-        
-        mapped_status = status_mapping.get(status, status)
-        db_employee.verification_status = mapped_status
-        db_employee.updated_at = func.now()
-        
-        await self.session.commit()
-        return True
-    
-    async def get_employees_by_profile_status(self, status: str, limit: int = 100) -> List[Employee]:
-        """Get employees by their profile status."""
-        # Map status strings to VerificationStatus enum values
-        status_mapping = {
-            "NOT_STARTED": "NOT_SUBMITTED",
-            "PENDING_VERIFICATION": "PENDING_DETAILS_REVIEW",
-            "VERIFIED": "VERIFIED", 
-            "REJECTED": "REJECTED"
-        }
-        
-        mapped_status = status_mapping.get(status, status)
-        
-        result = await self.session.execute(
-            select(EmployeeModel)
-            .where(EmployeeModel.verification_status == mapped_status)
-            .limit(limit)
-            .order_by(EmployeeModel.created_at.desc())
-        )
-        db_employees = result.scalars().all()
-        return [self._to_entity(db_employee) for db_employee in db_employees]
-
