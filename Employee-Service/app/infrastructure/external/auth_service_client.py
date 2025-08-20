@@ -3,8 +3,27 @@ import asyncio
 from typing import Optional, Dict, Any
 from uuid import UUID
 import logging
+from enum import Enum
+import time
 
 from app.config.settings import settings
+
+class ServiceUnavailableException(Exception):
+    """Exception raised when a service is unavailable due to circuit breaker."""
+    pass
+
+class CircuitState(Enum):
+    CLOSED = "closed"
+    OPEN = "open" 
+    HALF_OPEN = "half_open"
+
+class CircuitBreaker:
+    def __init__(self, failure_threshold=5, timeout=60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = CircuitState.CLOSED
 
 
 class AuthServiceClient:
@@ -27,14 +46,16 @@ class AuthServiceClient:
             "User-Agent": f"{self.service_name}/1.0"
         }
     
-    async def _make_request(
-        self, 
-        method: str, 
-        endpoint: str, 
-        data: Optional[Dict[str, Any]] = None,
-        retries: int = 0
-    ) -> Optional[Dict[str, Any]]:
-        """Make HTTP request to Auth Service with retry logic."""
+    async def _make_request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, retries: int = 0) -> Optional[Dict[str, Any]]:
+
+        if self.circuit_breaker.is_open():
+            raise ServiceUnavailableException("Auth Service circuit breaker is open")
+        
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        ) as client:
+            """Make HTTP request to Auth Service with retry logic."""
         
         url = f"{self.base_url}/api/v1/internal{endpoint}"
         headers = self._get_headers()
@@ -140,7 +161,19 @@ class AuthServiceClient:
         except Exception as e:
             self.logger.error(f"❌ Error getting user {user_id} profile status: {e}")
             return None
-    
+        
+    async def _fallback_user_status(self, user_id: UUID) -> str:
+        """Fallback when Auth Service is unavailable"""
+        self.logger.warning(f"Using fallback status for user {user_id}")
+        return "UNKNOWN"  
+
+    async def update_user_profile_status_with_fallback(self, user_id: UUID, status: str) -> bool:
+        try:
+            return await self.update_user_profile_status(user_id, status)
+        except ServiceUnavailableException:
+            await self._queue_status_update(user_id, status)
+            return False 
+        
     async def get_users_by_profile_status(self, status: str, limit: int = 100) -> list[Dict[str, Any]]:
         """Get users by their employee profile status."""
         

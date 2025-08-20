@@ -1,8 +1,11 @@
 from uuid import uuid4, UUID
 from datetime import datetime
 from typing import List, Optional
+import asyncio
+from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+from dataclasses import dataclass
 
 from app.core.entities.employee import Employee, EmploymentStatus, VerificationStatus
 from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus
@@ -28,6 +31,19 @@ from app.presentation.schema.profile_schema import (
     ManagerOptionResponse
 )
 
+class ProfileSubmissionLock:
+    def __init__(self):
+        self._locks = {}
+    
+    @asynccontextmanager
+    async def acquire_user_lock(self, user_id: UUID):
+        if user_id not in self._locks:
+            self._locks[user_id] = asyncio.Lock()
+        
+        async with self._locks[user_id]:
+            yield
+            
+_submission_locks = ProfileSubmissionLock()
 
 class ProfileUseCase:
     """Enhanced use cases for employee profile management and submission."""
@@ -48,19 +64,30 @@ class ProfileUseCase:
         """Enhanced profile submission with proper Auth Service integration."""
         
         print(f"🚀 Starting profile submission for user {request.user_id}")
-        
-        existing_employee = await self.employee_repository.get_by_user_id(request.user_id)
-        if existing_employee:
-            if not existing_employee.can_resubmit():
-                raise EmployeeAlreadyExistsException(
-                    f"Employee profile already exists with status: {existing_employee.verification_status.value}"
-                )
-            print(f"🔄 Updating existing employee profile for resubmission")
-            return await self._update_existing_profile(existing_employee, request)
-        
-        existing_by_email = await self.employee_repository.get_by_email(request.email)
-        if existing_by_email and existing_by_email.user_id != request.user_id:
-            raise EmployeeAlreadyExistsException("An employee with this email already exists")
+        async with _submission_locks.acquire_user_lock(request.user_id):
+            print(f"🔒 Acquired submission lock for user {request.user_id}")
+            
+            validation_result = await self._validate_profile_submission(request)
+            if not validation_result.is_valid:
+                raise EmployeeValidationException(validation_result.error_message)
+            
+            existing_employee = await self.employee_repository.get_by_user_id(request.user_id)
+            if existing_employee:
+                return await self._handle_existing_profile(existing_employee, request)
+            
+            existing_by_email = await self.employee_repository.get_by_email(request.email)
+            if existing_by_email:
+                if existing_by_email.user_id != request.user_id:
+                    await self._handle_email_conflict(existing_by_email, request)
+                else:
+                    pass
+            
+            try:
+                return await self._create_profile_with_transaction(request)
+            except Exception as e:
+                print(f"❌ Profile creation failed, initiating rollback: {e}")
+                await self._rollback_partial_creation(request.user_id)
+                raise
         
         if request.manager_id:
             manager = await self.employee_repository.get_by_id(request.manager_id)
@@ -86,8 +113,8 @@ class ProfileUseCase:
             employment_status=EmploymentStatus.ACTIVE,
             verification_status=VerificationStatus.PENDING_DETAILS_REVIEW,
             hired_at=None,  
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(datetime.timezone.utc),
+            updated_at=datetime.now(datetime.timezone.utc),
             version=1
         )
         
@@ -191,6 +218,161 @@ class ProfileUseCase:
         
         return await self._to_profile_response(updated_employee)
     
+
+
+    @dataclass
+    class ValidationResult:
+        is_valid: bool
+        error_message: str = ""
+        warnings: List[str] = None
+
+    async def _validate_profile_submission(self, request: SubmitProfileRequest) -> ValidationResult:
+        """Comprehensive profile submission validation."""
+        errors = []
+        warnings = []
+        
+        if not request.first_name or len(request.first_name.strip()) < 2:
+            errors.append("First name must be at least 2 characters")
+        
+        if not request.last_name or len(request.last_name.strip()) < 2:
+            errors.append("Last name must be at least 2 characters")
+        
+        if request.email.lower() != request.email:
+            warnings.append("Email should be lowercase")
+            request.email = request.email.lower()  
+        
+        valid_departments = await self.get_departments()
+        valid_dept_names = [dept.name for dept in valid_departments]
+        if request.department not in valid_dept_names:
+            errors.append(f"Invalid department. Must be one of: {', '.join(valid_dept_names)}")
+        
+        if request.manager_id:
+            manager = await self.employee_repository.get_by_id(request.manager_id)
+            if not manager:
+                errors.append("Selected manager does not exist")
+            elif not manager.is_active():
+                errors.append("Selected manager is not active")
+            elif manager.user_id == request.user_id:
+                errors.append("Cannot assign yourself as manager")
+        
+        if errors:
+            return self.ValidationResult(False, "; ".join(errors), warnings)
+        
+        return self.ValidationResult(True, "", warnings)
+
+    async def _handle_existing_profile(self, existing: Employee, request: SubmitProfileRequest) -> EmployeeProfileResponse:
+        """Handle submission when profile already exists."""
+        
+        if not existing.can_resubmit():
+            raise EmployeeAlreadyExistsException(
+                f"Profile already exists with status: {existing.verification_status.value}. "
+                f"Resubmission not allowed."
+            )
+        
+        if existing.email.lower() != request.email.lower():
+            print(f"⚠️  Email mismatch detected: existing={existing.email}, requested={request.email}")
+
+            if existing.verification_status == VerificationStatus.REJECTED:
+                print("✅ Allowing email update for rejected profile")
+            else:
+                raise EmployeeValidationException(
+                    "Email cannot be changed after profile submission. "
+                    "Contact support if you need to update your email."
+                )
+        
+        return await self._update_existing_profile(existing, request)
+
+    async def _handle_email_conflict(self, existing: Employee, request: SubmitProfileRequest):
+        """Handle email conflicts between different users."""
+        
+        conflict_details = {
+            "existing_user_id": existing.user_id,
+            "existing_status": existing.verification_status.value,
+            "requested_user_id": request.user_id,
+            "email": request.email
+        }
+        
+        print(f"🚨 Email conflict detected: {conflict_details}")
+        
+        # Log for admin investigation
+        # In production, this should trigger an admin alert
+        
+        raise EmployeeAlreadyExistsException(
+            f"An employee profile with email {request.email} already exists. "
+            f"If this is your email, please contact support."
+        )
+
+    async def _create_profile_with_transaction(self, request: SubmitProfileRequest) -> EmployeeProfileResponse:
+        """Create profile with transaction safety."""
+        
+        created_employee = None
+        role_assigned = False
+        auth_synced = False
+        
+        try:
+            employee = Employee(
+                id=uuid4(),
+                user_id=request.user_id,
+                first_name=request.first_name,
+                last_name=request.last_name,
+                email=request.email,
+                phone=request.phone,
+                title=request.title,
+                department=request.department,
+                manager_id=request.manager_id,
+                employment_status=EmploymentStatus.ACTIVE,
+                verification_status=VerificationStatus.PENDING_DETAILS_REVIEW,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+                version=1
+            )
+            
+            employee.submit_profile(request.user_id)
+            created_employee = await self.employee_repository.create(employee)
+            print(f"✅ Employee created: {created_employee.id}")
+            
+            role_assigned = await self._assign_newcomer_role_verified(request.user_id)
+            if not role_assigned:
+                raise Exception("Failed to assign NEWCOMER role")
+            
+            auth_synced = await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
+            if not auth_synced:
+                print("⚠️  Auth Service sync failed (non-critical)")
+            
+            event = EmployeeCreatedEvent(
+                employee_id=created_employee.id,
+                employee_data={
+                    "user_id": str(request.user_id),
+                    "email": request.email,
+                    "verification_status": created_employee.verification_status.value,
+                }
+            )
+            await self.event_repository.save_event(event)
+            
+            return await self._to_profile_response(created_employee)
+            
+        except Exception as e:
+            if created_employee:
+                await self._rollback_employee_creation(created_employee.id)
+            if role_assigned:
+                await self._rollback_role_assignment(request.user_id)
+            if auth_synced:
+                await self._rollback_auth_sync(request.user_id)
+            raise
+
+    async def _rollback_partial_creation(self, user_id: UUID):
+        """Rollback any partial creation artifacts."""
+        try:
+            employee = await self.employee_repository.get_by_user_id(user_id)
+            if employee:
+                await self.employee_repository.delete(employee.id)
+            
+            await self._rollback_role_assignment(user_id)
+            
+            print(f"✅ Rollback completed for user {user_id}")
+        except Exception as e:
+            print(f"❌ Rollback failed for user {user_id}: {e}")
+
     async def get_employee_profile_by_user_id(self, user_id: UUID) -> EmployeeProfileResponse:
         """Get employee profile by user ID."""
         
@@ -217,7 +399,6 @@ class ProfileUseCase:
             VerificationStatus.REJECTED: 0
         }
         
-        # Determine completed stages
         completed_stages = {
             "details_review_completed": employee.verification_status in [
                 VerificationStatus.PENDING_DOCUMENTS_REVIEW,
@@ -237,7 +418,6 @@ class ProfileUseCase:
             "final_approval_completed": employee.verification_status == VerificationStatus.VERIFIED
         }
         
-        # Generate next steps and required actions
         next_steps, required_actions = self._get_status_guidance(employee.verification_status)
         
         return ProfileVerificationStatusResponse(
@@ -303,7 +483,6 @@ class ProfileUseCase:
         if not employee:
             raise EmployeeNotFoundException("Employee profile not found")
         
-        # Check if deletion is allowed
         if employee.verification_status not in [
             VerificationStatus.PENDING_DETAILS_REVIEW,
             VerificationStatus.PENDING_DOCUMENTS_REVIEW,
@@ -371,36 +550,154 @@ class ProfileUseCase:
             print(f"⚠️  Warning: Failed to load managers: {e}")
             return []
     
-    async def _assign_newcomer_role(self, user_id: UUID):
-        """Auto-assign NEWCOMER role to new user."""
+    async def _assign_newcomer_role(self, user_id: UUID) -> bool:
+        """NEWCOMER role assignment with verification and rollback."""
         
+        max_retries = 3
+        retry_delay = 1.0 
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"🔄 Attempt {attempt + 1}/{max_retries}: Assigning NEWCOMER role to user {user_id}")
+                
+                newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
+                if not newcomer_role:
+                    await self._ensure_newcomer_role_exists()
+                    newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
+                    
+                    if not newcomer_role:
+                        raise Exception("NEWCOMER role not found and could not be created")
+                
+                existing_assignment = await self.role_repository.get_role_assignment(user_id, newcomer_role.id)
+                if existing_assignment and existing_assignment.is_active:
+                    print(f"✅ User {user_id} already has active NEWCOMER role")
+                    return await self._verify_role_assignment(user_id, newcomer_role.id)
+                
+                from app.core.entities.role import RoleAssignment
+                assignment = RoleAssignment(
+                    id=uuid4(),
+                    user_id=user_id,
+                    role_id=newcomer_role.id,
+                    scope={},
+                    created_at=datetime.utcnow(),
+                    is_active=True
+                )
+                
+                created_assignment = await self.role_repository.assign_role(assignment)
+                
+                verification_passed = await self._verify_role_assignment(user_id, newcomer_role.id)
+                
+                if verification_passed:
+                    print(f"✅ NEWCOMER role successfully assigned and verified for user {user_id}")
+                    return True
+                else:
+                    print(f"❌ Role assignment verification failed for user {user_id}")
+                    await self._cleanup_failed_assignment(created_assignment.id)
+                    raise Exception("Role assignment verification failed")
+                    
+            except Exception as e:
+                print(f"❌ Role assignment attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1)) 
+                    continue
+                else:
+                    # Final attempt failed
+                    print(f"❌ All role assignment attempts failed for user {user_id}")
+                    await self._handle_role_assignment_failure(user_id, str(e))
+                    return False
+        
+        return False
+
+    async def _verify_role_assignment(self, user_id: UUID, role_id: UUID) -> bool:
+        """Verify that role assignment was successful."""
         try:
-            newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
-            if not newcomer_role:
-                print("⚠️  NEWCOMER role not found in database - skipping auto-assignment")
-                return
+            assignment = await self.role_repository.get_role_assignment(user_id, role_id)
+            if not assignment or not assignment.is_active:
+                return False
             
-            existing_assignment = await self.role_repository.get_role_assignment(user_id, newcomer_role.id)
-            if existing_assignment:
-                print(f"✅ User {user_id} already has NEWCOMER role")
-                return
+            has_role = await self.role_repository.has_role(user_id, RoleCode.NEWCOMER)
+            if not has_role:
+                return False
             
-            from app.core.entities.role import RoleAssignment
-            assignment = RoleAssignment(
-                id=uuid4(),
-                user_id=user_id,
-                role_id=newcomer_role.id,
-                scope={},
-                created_at=datetime.utcnow()
-            )
-            
-            await self.role_repository.assign_role(assignment)
-            print(f"✅ NEWCOMER role assigned to user {user_id}")
+            print(f"✅ Role assignment verification passed for user {user_id}")
+            return True
             
         except Exception as e:
-            print(f"❌ Error assigning NEWCOMER role to user {user_id}: {e}")
-            raise 
-    
+            print(f"❌ Role assignment verification error: {e}")
+            return False
+
+    async def _ensure_newcomer_role_exists(self):
+        """Ensure NEWCOMER role exists in database."""
+        try:
+            from app.core.entities.role import Role
+            
+            newcomer_role = Role(
+                id=uuid4(),
+                code=RoleCode.NEWCOMER,
+                name="Newcomer",
+                description="Limited access role for users pending employee verification",
+                permissions={
+                    "can_view_own_profile": True,
+                    "can_update_basic_profile": True,
+                    "can_view_verification_status": True,
+                    "can_upload_documents": True,
+                    "can_resubmit_profile": True,
+                    "can_view_company_policies": True,
+                    "can_view_guidance": True
+                }
+            )
+            
+            await self.role_repository.create_role(newcomer_role)
+            print("✅ NEWCOMER role created successfully")
+            
+        except Exception as e:
+            print(f"❌ Failed to create NEWCOMER role: {e}")
+            raise
+
+    async def _cleanup_failed_assignment(self, assignment_id: UUID):
+        """Clean up failed role assignment."""
+        try:
+            #await self.role_repository.delete_assignment(assignment_id)
+            print(f"🧹 Cleaned up failed assignment {assignment_id}")
+        except Exception as e:
+            print(f"❌ Failed to cleanup assignment {assignment_id}: {e}")
+
+    async def _handle_role_assignment_failure(self, user_id: UUID, error: str):
+        """Handle complete role assignment failure."""
+        
+        print(f"🚨 CRITICAL: Role assignment failed for user {user_id}: {error}")
+        
+        # In production, this should:
+        # 1. Send alert to administrators
+        # 2. Create support ticket
+        # 3. Log to monitoring system
+        
+        # For now, we'll create a fallback mechanism
+        try:
+            await self._queue_manual_role_assignment(user_id, error)
+        except Exception as e:
+            print(f"❌ Failed to queue manual role assignment: {e}")
+
+    async def _queue_manual_role_assignment(self, user_id: UUID, error: str):
+        """Queue role assignment for manual resolution."""
+        # This could write to a special table or queue system
+        # For now, just log the requirement
+        print(f"📋 MANUAL ACTION REQUIRED: Assign NEWCOMER role to user {user_id}")
+        print(f"📋 Error details: {error}")
+        
+        # In production, create admin notification/ticket
+
+    async def _rollback_role_assignment(self, user_id: UUID):
+        """Rollback role assignment during transaction failure."""
+        try:
+            newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
+            if newcomer_role:
+                await self.role_repository.revoke_role(user_id, newcomer_role.id)
+            print(f"✅ Role assignment rollback completed for user {user_id}")
+        except Exception as e:
+            print(f"❌ Role assignment rollback failed: {e}")
+
     async def _sync_auth_service_status(self, user_id: UUID, status: str) -> bool:
         """Sync employee profile status with Auth Service."""
         

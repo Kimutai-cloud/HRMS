@@ -5,6 +5,29 @@ from uuid import UUID
 from enum import Enum
 
 
+def _validate_required_fields(self):
+    """Validate required fields are present and valid"""
+    errors = []
+    
+    if not self.first_name or not self.first_name.strip():
+        errors.append("first_name is required")
+    if not self.last_name or not self.last_name.strip():
+        errors.append("last_name is required") 
+    if not self.email or not self.email.strip():
+        errors.append("email is required")
+        
+    if errors:
+        raise ValueError(f"Employee validation failed: {', '.join(errors)}")
+
+def _normalize_fields(self):
+    """Normalize field values"""
+    if self.first_name:
+        self.first_name = self.first_name.strip()
+    if self.last_name:
+        self.last_name = self.last_name.strip()
+    if self.email:
+        self.email = self.email.lower().strip()
+
 class EmploymentStatus(str, Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
@@ -43,7 +66,6 @@ class Employee:
     updated_at: Optional[datetime]
     version: int = 1
     
-    # Verification workflow fields
     submitted_at: Optional[datetime] = None
     final_approved_by: Optional[UUID] = None
     final_approved_at: Optional[datetime] = None
@@ -53,7 +75,10 @@ class Employee:
     
     def __post_init__(self):
         if self.employment_status == EmploymentStatus.INACTIVE and not self.deactivated_at:
-            self.deactivated_at = datetime.utcnow()
+            self.deactivated_at = datetime.now(datetime.timezone.utc)
+
+        self._validate_required_fields()
+        self._normalize_fields()
     
     def is_active(self) -> bool:
         return self.employment_status == EmploymentStatus.ACTIVE
@@ -117,7 +142,6 @@ class Employee:
         self.updated_at = datetime.utcnow()
         self.version += 1
         
-        # Clear any previous rejection data
         self.rejection_reason = None
         self.rejected_by = None
         self.rejected_at = None

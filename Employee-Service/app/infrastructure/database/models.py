@@ -43,7 +43,6 @@ class EmployeeModel(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     version = Column(Integer, nullable=False, default=1)
     
-    # FIXED: Enhanced verification workflow fields
     submitted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     details_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
     details_reviewed_at = Column(DateTime(timezone=True), nullable=True)
@@ -53,6 +52,7 @@ class EmployeeModel(Base):
     role_assigned_at = Column(DateTime(timezone=True), nullable=True)
     final_approved_by = Column(UUID(as_uuid=True), nullable=True)
     final_approved_at = Column(DateTime(timezone=True), nullable=True)
+
     
     rejection_reason = Column(Text, nullable=True)
     rejected_by = Column(UUID(as_uuid=True), nullable=True)
@@ -161,7 +161,6 @@ class EmployeeDocumentModel(Base):
     )
     review_notes = Column(Text, nullable=True)
     
-    # Metadata
     is_required = Column(Boolean, nullable=False, default=True)
     display_order = Column(Integer, nullable=False, default=0)
     

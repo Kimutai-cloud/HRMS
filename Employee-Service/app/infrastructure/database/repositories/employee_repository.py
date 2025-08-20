@@ -324,6 +324,20 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         db_employees = result.scalars().all()
         return [self._to_entity(db_employee) for db_employee in db_employees]
     
+    def _validate_entity_fields(self, db_employee: EmployeeModel) -> dict:
+        """Validate and clean entity fields"""
+        validation_errors = []
+        
+        if not db_employee.first_name or not db_employee.first_name.strip():
+            validation_errors.append("first_name is required")
+        if not db_employee.email or not db_employee.email.strip():
+            validation_errors.append("email is required")
+            
+        if validation_errors:
+            raise ValueError(f"Entity validation failed: {', '.join(validation_errors)}")
+        
+        return {}
+    
     def _to_entity(self, db_employee: EmployeeModel) -> Employee:
         """Convert database model to entity with proper field mapping."""
         return Employee(
@@ -349,5 +363,6 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             final_approved_at=getattr(db_employee, 'final_approved_at', None),
             rejection_reason=getattr(db_employee, 'rejection_reason', None),
             rejected_by=getattr(db_employee, 'rejected_by', None),
-            rejected_at=getattr(db_employee, 'rejected_at', None)
+            rejected_at=getattr(db_employee, 'rejected_at', None),
+            **self._validate_entity_fields(db_employee)
         )

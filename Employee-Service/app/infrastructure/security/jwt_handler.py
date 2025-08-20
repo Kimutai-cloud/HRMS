@@ -2,6 +2,7 @@
 from typing import Optional, Dict, Any
 import jwt
 from datetime import datetime
+from dataclasses import dataclass
 
 from app.config.settings import settings
 
@@ -18,6 +19,9 @@ class JWTHandler:
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify JWT token and return enhanced claims with employee profile status."""
         try:
+            if not token or not isinstance(token, str):
+                self.logger.error("Invalid token format: token must be non-empty string")
+                return None
             # Decode and verify token
             payload = jwt.decode(
                 token,
@@ -29,6 +33,8 @@ class JWTHandler:
                     "verify_exp": True,
                     "verify_aud": True,
                     "verify_iss": True,
+                    "verify_iat": True,
+                    "require_iat": True,
                     "require_exp": True,
                     "require_aud": True,
                     "require_iss": True
@@ -61,7 +67,11 @@ class JWTHandler:
                 print("⚠️  JWT missing employee_profile_status - using fallback")
                 employee_profile_status = "UNKNOWN"
             
-            # Return enhanced payload with all extracted information
+            validation_result = self._validate_payload_claims(payload)
+            if not validation_result.is_valid:
+                    self.logger.error(f"Token validation failed: {validation_result.error}")
+                    return None
+                    
             return {
                 "user_id": payload.get("sub"),
                 "email": payload.get("email"),
@@ -71,15 +81,10 @@ class JWTHandler:
                 "expires_at": payload.get("exp"),
                 "audience": payload.get("aud"),
                 "issuer": payload.get("iss"),
-                "raw_payload": payload  # Keep original for debugging
+                "raw_payload": payload  
             }
             
-        except jwt.ExpiredSignatureError:
-            print("❌ JWT validation failed: Token has expired")
-            return None
-        except jwt.InvalidAudienceError:
-            print(f"❌ JWT validation failed: Invalid audience (expected: {self.audience})")
-            return None
+
         except jwt.InvalidIssuerError:
             print(f"❌ JWT validation failed: Invalid issuer (expected: {self.issuer})")
             return None
@@ -89,6 +94,44 @@ class JWTHandler:
         except Exception as e:
             print(f"❌ JWT validation failed: Unexpected error - {e}")
             return None
+        except jwt.ExpiredSignatureError:
+            self.logger.warning("Token validation failed: Token has expired")
+            return None
+        except jwt.InvalidAudienceError:
+            self.logger.error(f"Token validation failed: Invalid audience (expected: {self.audience})")
+            return None
+        
+    @dataclass
+    class ValidationResult:
+        is_valid: bool
+        error: Optional[str] = None
+
+    def _validate_payload_claims(self, payload: Dict[str, Any]) -> ValidationResult:
+        """Comprehensive payload validation"""
+        
+        required_claims = ["sub", "email", "type", "iat", "exp"]
+        for claim in required_claims:
+            if claim not in payload:
+                return self.ValidationResult(False, f"Missing required claim: {claim}")
+        
+        try:
+            from uuid import UUID
+            UUID(payload["sub"])
+        except (ValueError, TypeError):
+            return self.ValidationResult(False, "Invalid user ID format in 'sub' claim")
+        
+        email = payload.get("email", "")
+        if not email or "@" not in email:
+            return self.ValidationResult(False, "Invalid email format in token")
+        
+        if payload.get("type") not in ["access", "refresh"]:
+            return self.ValidationResult(False, f"Invalid token type: {payload.get('type')}")
+        
+        now = datetime.utcnow().timestamp()
+        if payload.get("iat", 0) > now + 300:  
+            return self.ValidationResult(False, "Token issued in the future")
+        
+        return self.ValidationResult(True)
     
     def extract_user_claims(self, token: str) -> Optional[Dict[str, Any]]:
         """Extract user-specific claims from JWT token."""

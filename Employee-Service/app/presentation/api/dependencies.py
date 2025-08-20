@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, logger, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -27,7 +27,6 @@ from app.infrastructure.security.permission_service import AccessLevel, Permissi
 
 security = HTTPBearer()
 
-# Database session dependency
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with db_connection.async_session() as session:
         try:
@@ -35,7 +34,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
-# Service dependencies
 def get_jwt_handler() -> JWTHandler:
     return JWTHandler()
 
@@ -65,7 +63,6 @@ def get_notification_service(
 ) -> NotificationService:
     return NotificationService(employee_repository)
 
-# Domain services
 def get_employee_domain_service(
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
     role_repository: RoleRepository = Depends(get_role_repository),
@@ -79,7 +76,6 @@ def get_rbac_service(
 ) -> RoleBasedAccessControlService:
     return RoleBasedAccessControlService(role_repository, employee_repository)
 
-# Use case dependencies
 def get_employee_use_case(
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
     event_repository: EventRepository = Depends(get_event_repository),
@@ -140,67 +136,96 @@ def get_verification_middleware(
 ) -> VerificationAwareMiddleware:
     return VerificationAwareMiddleware(permission_service)
 
-# FIXED: Enhanced JWT token validation with proper error handling
 async def get_current_user_claims(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     jwt_handler: JWTHandler = Depends(get_jwt_handler)
 ) -> UserClaims:
-    """Extract and validate JWT token with enhanced error handling."""
+    """Enhanced JWT token validation with comprehensive error handling."""
     
     try:
-        # Verify token using enhanced JWT handler
         token_data = jwt_handler.verify_token(credentials.credentials)
         if not token_data:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired authentication token",
+                detail={
+                    "error": "INVALID_TOKEN",
+                    "message": "Invalid or expired authentication token",
+                    "hint": "Please login again to obtain a new token"
+                },
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Validate required fields
-        if not token_data.get("user_id"):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing user ID",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        validation_errors = []
         
+        if not token_data.get("sub"):
+            validation_errors.append("missing user ID")
         if not token_data.get("email"):
+            validation_errors.append("missing email")
+        if not token_data.get("employee_profile_status"):
+            validation_errors.append("missing profile status")
+            
+        if validation_errors:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing email",
+                detail={
+                    "error": "INVALID_TOKEN_CLAIMS", 
+                    "message": f"Token validation failed: {', '.join(validation_errors)}",
+                    "hint": "Token may be from an older version. Please login again."
+                },
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Create UserClaims with proper validation
-        user_claims = UserClaims(
-            user_id=UUID(token_data["user_id"]),
-            email=token_data["email"],
-            employee_profile_status=token_data.get("employee_profile_status", "NOT_STARTED"),
-            token_type=token_data.get("token_type", "access"),
-            issued_at=token_data.get("issued_at"),
-            expires_at=token_data.get("expires_at"),
-            audience=token_data.get("audience"),
-            issuer=token_data.get("issuer"),
-            raw_payload=token_data
-        )
-        
-        return user_claims
-        
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token format: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        try:
+            user_claims = UserClaims(
+                user_id=UUID(token_data["sub"]),
+                email=token_data["email"],
+                employee_profile_status=token_data.get("employee_profile_status", "NOT_STARTED"),
+                token_type=token_data.get("type", "access"),
+                issued_at=token_data.get("iat"),
+                expires_at=token_data.get("exp"),
+                audience=token_data.get("aud"),
+                issuer=token_data.get("iss"),
+                raw_payload=token_data
+            )
+            
+            if user_claims.token_type != "access":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "error": "WRONG_TOKEN_TYPE",
+                        "message": f"Expected access token, got {user_claims.token_type}",
+                        "hint": "Use access token for API requests"
+                    },
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            return user_claims
+            
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "TOKEN_FORMAT_ERROR",
+                    "message": f"Invalid token format: {str(e)}",
+                    "hint": "Please login again to obtain a valid token"
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
+    except HTTPException:
+        raise  
     except Exception as e:
+        logger.error(f"Unexpected JWT validation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail={
+                "error": "AUTHENTICATION_ERROR",
+                "message": "Could not validate credentials",
+                "hint": "Please try logging in again"
+            },
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-# Legacy compatibility
 async def get_current_user(
     user_claims: UserClaims = Depends(get_current_user_claims)
 ) -> dict:
@@ -212,7 +237,6 @@ async def get_current_user(
         "access_level": user_claims.get_access_level()
     }
 
-# FIXED: Access level requirements with proper validation
 async def require_profile_completion(
     user_claims: UserClaims = Depends(get_current_user_claims),
     middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
@@ -249,7 +273,6 @@ async def require_admin_access(
         user_claims, [AccessLevel.ADMIN]
     )
 
-# Permission-based requirements
 async def require_profile_management(
     user_claims: UserClaims = Depends(get_current_user_claims),
     middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
@@ -286,7 +309,6 @@ async def require_employee_view(
         user_claims, PermissionType.VIEW_EMPLOYEES
     )
 
-# Request context for audit logging
 async def get_request_context(request: Request) -> dict:
     """Extract request context for audit logging."""
     return {
@@ -295,8 +317,6 @@ async def get_request_context(request: Request) -> dict:
         "endpoint": f"{request.method} {request.url.path}",
         "query_params": dict(request.query_params)
     }
-
-# Context-aware permission checker
 class ContextualPermissionChecker:
     """Helper for checking permissions with context."""
     
@@ -344,7 +364,6 @@ def get_permission_checker(
 ) -> ContextualPermissionChecker:
     return ContextualPermissionChecker(permission_service)
 
-# FIXED: Legacy dependency aliases for backward compatibility
 async def require_admin(
     user_claims: UserClaims = Depends(require_admin_access)
 ) -> dict:
@@ -378,7 +397,6 @@ async def require_manager_or_admin(
         "access_level": "ADMIN" if is_admin else "MANAGER"
     }
 
-# FIXED: Enhanced user claims with employee lookup
 async def get_current_user_with_employee(
     user_claims: UserClaims = Depends(get_current_user_claims),
     employee_repository: EmployeeRepository = Depends(get_employee_repository)
@@ -391,7 +409,6 @@ async def get_current_user_with_employee(
     except Exception:
         return user_claims, None
 
-# FIXED: Allow access for newcomers with fallbacks
 async def allow_newcomer_access(
     user_claims: UserClaims = Depends(get_current_user_claims)
 ) -> UserClaims:

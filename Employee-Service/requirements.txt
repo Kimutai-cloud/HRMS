@@ -28,9 +28,12 @@ fastapi-cors==0.0.6
 
 # HTTP Client for Auth Service integration
 httpx==0.28.1
-
-# Event Bus (optional - NATS or Kafka)
 nats-py==2.8.0
+
+tenacity==8.2.3  
+circuitbreaker==1.4.0 
+
+dataclasses-json==0.6.1 
 
 
 
