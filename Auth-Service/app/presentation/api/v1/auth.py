@@ -69,7 +69,7 @@ async def register(
         )
     except Exception as e:
         # Log unexpected errors
-        print(f"❌ Unexpected registration error: {e}")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Registration failed due to an internal error. Please try again later."

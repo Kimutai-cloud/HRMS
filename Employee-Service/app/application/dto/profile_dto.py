@@ -10,8 +10,8 @@ from app.core.entities.document import DocumentType
 class SubmitProfileRequest:
     """DTO for employee profile submission."""
     
-    user_id: UUID  # Extracted from JWT
-    email: str  # Extracted from JWT
+    user_id: UUID  
+    email: str 
     first_name: str
     last_name: str
     phone: Optional[str]

@@ -21,8 +21,7 @@ const Dashboard: React.FC = () => {
           <div className="w-24 h-24 bg-gradient-to-br from-green-600 to-green-700 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-green-500/25">
             <CheckCircle className="w-12 h-12 text-white" />
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">Welcome to Your Dashboard</h1>
-          <p className="text-gray-600 text-lg">You're successfully authenticated and ready to go!</p>
+          <h1 className="text-4xl font-bold text-gray-900 mb-3">Dashboard</h1>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6 mb-8">
@@ -57,28 +56,7 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-teal-50 to-teal-100/50 rounded-xl p-6 border border-teal-200/50 shadow-lg shadow-teal-500/10 hover:shadow-xl hover:shadow-teal-500/20 transition-all duration-300 hover:-translate-y-1">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-teal-600 to-teal-700 rounded-full flex items-center justify-center shadow-lg shadow-teal-500/25">
-                <Shield className="w-5 h-5 text-white" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900">Account Security</h3>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">Two-factor authentication available</span>
-              </div>
-              <div className="flex items-center space-x-2 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">Secure password requirements</span>
-              </div>
-              <div className="flex items-center space-x-2 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">Email verification enabled</span>
-              </div>
-            </div>
-          </div>
+          
         </div>
 
         <div className="text-center">

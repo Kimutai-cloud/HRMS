@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from typing import Optional
+from typing import AsyncGenerator
 
 from app.core.exceptions.employee_exceptions import EmployeePermissionException
 from app.core.exceptions.role_exceptions import UnauthorizedException, ForbiddenException
@@ -22,50 +22,45 @@ from app.application.use_case.document_use_cases import DocumentUseCase
 from app.application.use_case.profile_use_cases import ProfileUseCase  
 from app.infrastructure.database.repositories.document_repository import DocumentRepository
 from app.infrastructure.external.auth_service_client import auth_service_client
+from app.core.entities.user_claims import UserClaims
+from app.infrastructure.security.permission_service import (
+    PermissionService, 
+    VerificationAwareMiddleware,
+    AccessLevel,
+    PermissionType
+)
 
-
-# Security scheme
 security = HTTPBearer()
 
 
-# Database session dependency
-async def get_db_session() -> AsyncSession:
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with db_connection.async_session() as session:
         try:
             yield session
         finally:
             await session.close()
 
-
-# Service dependencies
 def get_jwt_handler() -> JWTHandler:
     return JWTHandler()
 
-
-# Repository dependencies
 def get_employee_repository(session: AsyncSession = Depends(get_db_session)) -> EmployeeRepository:
     return EmployeeRepository(session)
-
 
 def get_role_repository(session: AsyncSession = Depends(get_db_session)) -> RoleRepository:
     return RoleRepository(session)
 
-
 def get_event_repository(session: AsyncSession = Depends(get_db_session)) -> EventRepository:
     return EventRepository(session)
-
 
 def get_audit_repository(session: AsyncSession = Depends(get_db_session)) -> AuditRepository:
     return AuditRepository(session)
 
-
-# Domain service dependencies
 def get_permission_service(
     role_repository: RoleRepository = Depends(get_role_repository),
     employee_repository: EmployeeRepository = Depends(get_employee_repository)
 ) -> PermissionService:
     return PermissionService(role_repository, employee_repository)
-
 
 def get_employee_domain_service(
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
@@ -74,15 +69,12 @@ def get_employee_domain_service(
 ) -> EmployeeDomainService:
     return EmployeeDomainService(employee_repository, role_repository, permission_service)
 
-
 def get_rbac_service(
     role_repository: RoleRepository = Depends(get_role_repository),
     employee_repository: EmployeeRepository = Depends(get_employee_repository)
 ) -> RoleBasedAccessControlService:
     return RoleBasedAccessControlService(role_repository, employee_repository)
 
-
-# Use case dependencies
 def get_employee_use_case(
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
     event_repository: EventRepository = Depends(get_event_repository),
@@ -109,9 +101,6 @@ def get_role_use_case(
     rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
 ) -> RoleUseCase:
     return RoleUseCase(role_repository, event_repository, rbac_service)
-
-
-# Enhanced Authentication dependencies
 
 async def get_current_user_claims(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -156,8 +145,6 @@ async def get_current_user_claims(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-
-# Legacy compatibility - returns dict like before
 async def get_current_user(
     user_claims: UserClaims = Depends(get_current_user_claims)
 ) -> dict:
@@ -168,9 +155,6 @@ async def get_current_user(
         "employee_profile_status": user_claims.employee_profile_status,
         "access_level": user_claims.get_access_level()
     }
-
-
-# Enhanced authorization helpers with profile status checking
 
 async def require_verified_profile(
     user_claims: UserClaims = Depends(get_current_user_claims)
@@ -194,60 +178,6 @@ async def require_verified_profile(
     
     return user_claims
 
-
-async def require_admin(
-    user_claims: UserClaims = Depends(require_verified_profile),
-    rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
-) -> UserClaims:
-    """Require admin role AND verified profile."""
-    
-    if not await rbac_service.is_admin(user_claims.user_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required"
-        )
-    
-    return user_claims
-
-
-async def require_manager_or_admin(
-    user_claims: UserClaims = Depends(require_verified_profile),
-    rbac_service: RoleBasedAccessControlService = Depends(get_rbac_service)
-) -> UserClaims:
-    """Require manager or admin role AND verified profile."""
-    
-    user_id = user_claims.user_id
-    if not (await rbac_service.is_admin(user_id) or await rbac_service.is_manager(user_id)):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Manager or Admin role required"
-        )
-    
-    return user_claims
-
-
-async def allow_newcomer_access(
-    user_claims: UserClaims = Depends(get_current_user_claims)
-) -> UserClaims:
-    """Allow access for pending verification or verified users (newcomer + full access)."""
-    
-    if not user_claims.can_access_newcomer_endpoints():
-        detail = f"Profile verification required. Current status: {user_claims.employee_profile_status}"
-        
-        if user_claims.needs_profile_completion():
-            detail += " Please complete your employee profile first."
-        elif user_claims.is_profile_rejected():
-            detail += " Your profile was rejected. Please resubmit with corrections."
-        
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=detail
-        )
-    
-    return user_claims
-
-
-# Request context for audit logging
 async def get_request_context(request: Request) -> dict:
     """Extract request context for audit logging."""
     
@@ -261,8 +191,6 @@ async def get_request_context(request: Request) -> dict:
 def get_document_repository(session: AsyncSession = Depends(get_db_session)) -> DocumentRepository:
     return DocumentRepository(session)
 
-
-
 def get_document_use_case(
     document_repository: DocumentRepository = Depends(get_document_repository),
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
@@ -274,7 +202,6 @@ def get_document_use_case(
         event_repository=event_repository,
         auth_service_client=auth_service_client
     )
-
 
 def get_admin_review_use_case(
     employee_repository: EmployeeRepository = Depends(get_employee_repository),
@@ -291,3 +218,133 @@ def get_admin_review_use_case(
         rbac_service=rbac_service,
         auth_service_client=auth_service_client
     )
+
+def get_verification_middleware(
+    permission_service: PermissionService = Depends(get_permission_service)
+) -> VerificationAwareMiddleware:
+    return VerificationAwareMiddleware(permission_service)
+
+async def require_profile_completion(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require user to be able to complete their profile."""
+    return await middleware.verify_access_level(
+        user_claims, [AccessLevel.PROFILE_COMPLETION, AccessLevel.NEWCOMER, AccessLevel.VERIFIED, AccessLevel.ADMIN]
+    )
+
+async def require_newcomer_access(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require newcomer level access or higher."""
+    return await middleware.verify_access_level(
+        user_claims, [AccessLevel.NEWCOMER, AccessLevel.VERIFIED, AccessLevel.ADMIN]
+    )
+
+async def require_verified_employee(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require verified employee status."""
+    return await middleware.verify_access_level(
+        user_claims, [AccessLevel.VERIFIED, AccessLevel.ADMIN]
+    )
+
+async def require_admin_access(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require admin access."""
+    return await middleware.verify_access_level(
+        user_claims, [AccessLevel.ADMIN]
+    )
+
+async def require_profile_management(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require permission to manage own profile."""
+    return await middleware.verify_permission(
+        user_claims, PermissionType.UPDATE_OWN_PROFILE
+    )
+
+
+async def require_document_upload(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require permission to upload documents."""
+    return await middleware.verify_permission(
+        user_claims, PermissionType.UPLOAD_DOCUMENTS
+    )
+
+
+async def require_admin_review(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require permission to review profiles."""
+    return await middleware.verify_permission(
+        user_claims, PermissionType.REVIEW_PROFILES
+    )
+
+
+async def require_employee_view(
+    user_claims: UserClaims = Depends(get_current_user_claims),
+    middleware: VerificationAwareMiddleware = Depends(get_verification_middleware)
+) -> UserClaims:
+    """Require permission to view employees."""
+    return await middleware.verify_permission(
+        user_claims, PermissionType.VIEW_EMPLOYEES
+    )
+
+
+# Context-aware permission checker
+class ContextualPermissionChecker:
+    """Helper for checking permissions with context."""
+    
+    def __init__(self, permission_service: PermissionService):
+        self.permission_service = permission_service
+    
+    async def can_view_employee(
+        self, 
+        user_claims: UserClaims, 
+        employee_id: UUID
+    ) -> bool:
+        """Check if user can view specific employee."""
+        return await self.permission_service.has_permission(
+            user_claims,
+            PermissionType.VIEW_EMPLOYEES,
+            {"employee_id": employee_id}
+        )
+    
+    async def can_update_employee(
+        self, 
+        user_claims: UserClaims, 
+        employee_id: UUID
+    ) -> bool:
+        """Check if user can update specific employee."""
+        return await self.permission_service.has_permission(
+            user_claims,
+            PermissionType.UPDATE_EMPLOYEES,
+            {"employee_id": employee_id}
+        )
+    
+    async def can_manage_document(
+        self, 
+        user_claims: UserClaims, 
+        document_owner_id: UUID
+    ) -> bool:
+        """Check if user can manage specific document."""
+        return await self.permission_service.has_permission(
+            user_claims,
+            PermissionType.VIEW_OWN_DOCUMENTS,
+            {"document_owner_id": document_owner_id}
+        )
+
+
+def get_permission_checker(
+    permission_service: PermissionService = Depends(get_permission_service)
+) -> ContextualPermissionChecker:
+    return ContextualPermissionChecker(permission_service)

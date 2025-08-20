@@ -21,23 +21,23 @@ class FastAPIMailService(EmailServiceInterface):
                 "VALIDATE_CERTS": True
             }
             
-            print(f"📧 Email config: {conf_dict}")  # Debug logging
+
             
             self.conf = ConnectionConfig(**conf_dict)
             self.fast_mail = FastMail(self.conf)
             self.frontend_url = settings.FRONTEND_URL
             
-            print("📧 Email service initialized successfully")
+
             
         except Exception as e:
-            print(f"❌ Email service initialization failed: {e}")
+
             self.conf = None
             self.fast_mail = None
             self.frontend_url = settings.FRONTEND_URL
     
     async def send_verification_email(self, email: str, token: str) -> bool:
         if not self.fast_mail:
-            print(f"📧 Would send verification email to {email} (email service disabled)")
+
             return True
             
         verification_url = f"{self.frontend_url}/verify-email?token={token}"
@@ -64,7 +64,7 @@ class FastAPIMailService(EmailServiceInterface):
     
     async def send_password_reset_email(self, email: str, token: str) -> bool:
         if not self.fast_mail:
-            print(f"📧 Would send password reset email to {email} (email service disabled)")
+
             return True
             
         reset_url = f"{self.frontend_url}/reset-password?token={token}"
@@ -92,7 +92,7 @@ class FastAPIMailService(EmailServiceInterface):
     
     async def send_welcome_email(self, email: str, name: str) -> bool:
         if not self.fast_mail:
-            print(f"📧 Would send welcome email to {email} (email service disabled)")
+
             return True
             
         html_content = f"""
@@ -112,7 +112,7 @@ class FastAPIMailService(EmailServiceInterface):
     
     async def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
         if not self.fast_mail:
-            print(f"📧 Email disabled - would send '{subject}' to {to_email}")
+
             return True
             
         try:
@@ -124,9 +124,9 @@ class FastAPIMailService(EmailServiceInterface):
             )
             
             await self.fast_mail.send_message(message)
-            print(f"📧 Email sent successfully to {to_email}")
+
             return True
             
         except Exception as e:
-            print(f"❌ Email sending failed: {e}")
+
             return False
