@@ -4,10 +4,13 @@ from typing import List, Optional
 from uuid import UUID
 import io
 
+from app.application.services.notification_service import NotificationService
+from app.presentation.api.dependencies import get_notification_service
 from app.application.use_case.admin_review_use_cases import AdminReviewUseCase
 from app.application.use_case.document_use_cases import DocumentUseCase
 from app.infrastructure.database.repositories.audit_repository import AuditRepository
 from app.core.entities.role import RoleCode
+from app.application.services.notification_service import NotificationService
 from app.core.entities.document import DocumentReviewStatus
 from app.presentation.schema.admin_schema import (
     AdminDashboardResponse,
@@ -18,8 +21,10 @@ from app.presentation.schema.admin_schema import (
     FinalApprovalRequest,
     RejectProfileRequest,
     BulkApprovalRequest,
+    BulkDocumentApprovalRequest,
     DocumentReviewRequest,
-    DocumentReviewResponse
+    DocumentReviewResponse,
+    BulkNotificationRequest
 )
 from app.presentation.schema.common_schema import SuccessResponse
 from app.presentation.api.dependencies import (
@@ -27,7 +32,8 @@ from app.presentation.api.dependencies import (
     get_document_use_case,
     get_audit_repository,
     require_admin,
-    get_request_context
+    get_request_context,
+    get_notification_service
 )
 from app.core.exceptions.employee_exceptions import (
     EmployeeNotFoundException,
@@ -782,4 +788,80 @@ async def bulk_approve_employees(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e)
+        )
+    
+@router.post("/reviews/bulk-documents-approve", response_model=SuccessResponse)
+async def bulk_approve_documents(
+    request: BulkDocumentApprovalRequest,
+    current_user: dict = Depends(require_admin),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    request_context: dict = Depends(get_request_context)
+):
+    """Bulk approve multiple documents."""
+    
+    try:
+        approved_documents = await document_use_case.bulk_approve_documents(
+            document_ids=request.document_ids,
+            reviewer_id=current_user["user_id"],
+            notes=request.notes
+        )
+        
+        # Audit log for bulk operation
+        await audit_repository.log_action(
+            entity_type="bulk_operation",
+            entity_id=current_user["user_id"],
+            action="BULK_DOCUMENT_APPROVAL",
+            user_id=current_user["user_id"],
+            changes={
+                "document_count": len(request.document_ids),
+                "approved_count": len(approved_documents),
+                "document_ids": [str(id) for id in request.document_ids],
+                "notes": request.notes
+            },
+            ip_address=request_context.get("ip_address"),
+            user_agent=request_context.get("user_agent")
+        )
+        
+        return SuccessResponse(
+            message=f"Bulk document approval completed: {len(approved_documents)}/{len(request.document_ids)} documents approved"
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bulk operation failed: {str(e)}"
+        )
+
+@router.post("/notifications/bulk-send", response_model=SuccessResponse)
+async def bulk_send_notifications(
+    request: BulkNotificationRequest,
+    current_user: dict = Depends(require_admin),
+    notification_service: NotificationService = Depends(get_notification_service)
+):
+    """Send bulk notifications to multiple users."""
+    
+    try:
+        success_count = 0
+        for user_id in request.user_ids:
+            try:
+                await notification_service._create_notification(
+                    user_id=user_id,
+                    type=request.notification_type,
+                    title=request.title,
+                    message=request.message,
+                    data=request.additional_data or {}
+                )
+                success_count += 1
+            except Exception as e:
+                print(f"⚠️ Failed to send notification to {user_id}: {e}")
+        
+        return SuccessResponse(
+            message=f"Bulk notifications sent: {success_count}/{len(request.user_ids)} successful"
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Bulk notification failed: {str(e)}"
         )

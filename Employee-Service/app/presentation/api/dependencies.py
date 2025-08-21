@@ -136,6 +136,11 @@ def get_verification_middleware(
 ) -> VerificationAwareMiddleware:
     return VerificationAwareMiddleware(permission_service)
 
+def get_notification_service(
+    employee_repository: EmployeeRepository = Depends(get_employee_repository)
+) -> NotificationService:
+    return NotificationService(employee_repository)
+
 async def get_current_user_claims(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     jwt_handler: JWTHandler = Depends(get_jwt_handler)

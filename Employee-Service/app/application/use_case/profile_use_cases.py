@@ -18,6 +18,7 @@ from app.core.exceptions.employee_exceptions import (
 )
 from app.core.interfaces.repositories import EmployeeRepositoryInterface, EventRepositoryInterface, RoleRepositoryInterface
 from app.infrastructure.external.auth_service_client import AuthServiceClient
+from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
 from app.application.dto.profile_dto import (
     SubmitProfileRequest,
     DocumentUploadRequest,
@@ -155,6 +156,17 @@ class ProfileUseCase:
             }
         )
         await self.event_repository.save_event(event)
+        
+        # Send real-time WebSocket notifications
+        try:
+            # Notify user of successful submission
+            await RealTimeNotificationSender.send_profile_submission_confirmation(created_employee)
+            
+            # Alert admins of new submission
+            await RealTimeNotificationSender.send_admin_new_submission_alert(created_employee)
+            
+        except Exception as e:
+            print(f"⚠️ Real-time notifications failed (non-critical): {e}")
         
         print(f"🎉 Profile submission completed successfully!")
         print(f"📋 Employee ID: {created_employee.id}")

@@ -1,6 +1,8 @@
 # Environment files
 .env
 Auth-Service/.env
+PHASE_4_IMPLEMENTATION_CHANGES.txt
+task.txt
 
 Auth-Service/docker-compose.yml
 Employee-Service/docker-compose.yml

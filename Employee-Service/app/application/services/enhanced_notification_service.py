@@ -1,7 +1,9 @@
 from app.application.services.notification_service import NotificationService
 from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
+from typing import Optional, Dict, Any
+from uuid import UUID
 
-
+from app.core.entities.employee import Employee
 class EnhancedNotificationService(NotificationService):
     """Enhanced notification service with real-time WebSocket support."""
     

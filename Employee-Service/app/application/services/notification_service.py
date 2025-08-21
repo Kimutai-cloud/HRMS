@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, func
+from typing import List, Dict, Any, Optional, _Func
 from fastapi import APIRouter, Depends, Query
 from uuid import UUID
 from datetime import datetime, timedelta
@@ -16,6 +16,8 @@ from app.infrastructure.database.connections import db_connection
 from app.config.settings import settings
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
+from app.application.services.email_template_service import email_template_service
 
 
 
@@ -59,17 +61,22 @@ class NotificationService:
             data={"employee_id": str(employee.id), "stage": "submitted"}
         )
         
-        # Send email notification
-        if self.smtp_enabled:
-            await self._send_email(
-                to_email=employee.email,
-                subject=title,
-                template="profile_submitted",
-                context={
-                    "first_name": employee.first_name,
-                    "employee": employee
-                }
-            )
+        # Send enhanced template email
+        try:
+            await email_template_service.send_profile_submission_email(employee)
+        except Exception as e:
+            print(f"⚠️ Enhanced email failed, trying fallback: {e}")
+            # Fallback to simple email
+            if self.smtp_enabled:
+                await self._send_email(
+                    to_email=employee.email,
+                    subject=title,
+                    template="profile_submitted",
+                    context={
+                        "first_name": employee.first_name,
+                        "employee": employee
+                    }
+                )
         
         return True
     
@@ -153,20 +160,30 @@ class NotificationService:
             }
         )
         
-        # Send email notification
-        if self.smtp_enabled:
-            await self._send_email(
-                to_email=employee.email,
-                subject=notification_data["title"],
-                template="stage_advanced",
-                context={
-                    "first_name": employee.first_name,
-                    "from_stage": from_stage,
-                    "to_stage": to_stage,
-                    "message": notification_data["message"],
-                    "notes": notes
-                }
+        # Send enhanced template email
+        try:
+            await email_template_service.send_stage_advancement_email(
+                employee=employee,
+                from_stage=from_stage,
+                to_stage=to_stage,
+                notes=notes
             )
+        except Exception as e:
+            print(f"⚠️ Enhanced email failed, trying fallback: {e}")
+            # Fallback to simple email
+            if self.smtp_enabled:
+                await self._send_email(
+                    to_email=employee.email,
+                    subject=notification_data["title"],
+                    template="stage_advanced",
+                    context={
+                        "first_name": employee.first_name,
+                        "from_stage": from_stage,
+                        "to_stage": to_stage,
+                        "message": notification_data["message"],
+                        "notes": notes
+                    }
+                )
         
         return True
     
@@ -459,7 +476,7 @@ class NotificationService:
                 "title": title,
                 "message": message,
                 "data": data or {},
-                "created_at": ddatetime.now(datetime.timezone.utc())
+                "created_at": datetime.now(datetime.timezone.utc())
             }
             
             result = await session.execute(

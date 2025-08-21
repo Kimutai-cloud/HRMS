@@ -17,6 +17,7 @@ from app.core.exceptions.employee_exceptions import (
 from app.core.interfaces.repositories import EmployeeRepositoryInterface, EventRepositoryInterface
 from app.infrastructure.database.repositories.document_repository import DocumentRepositoryInterface
 from app.infrastructure.external.auth_service_client import AuthServiceClient
+from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
 from app.config.settings import settings
 
 
@@ -121,6 +122,15 @@ class DocumentUseCase:
             )
             await self.event_repository.save_event(event)
             
+            # Send real-time WebSocket notification
+            try:
+                await RealTimeNotificationSender.send_document_upload_confirmation(
+                    employee=employee,
+                    document=created_document
+                )
+            except Exception as e:
+                print(f"⚠️ Real-time notification failed (non-critical): {e}")
+            
             print(f"✅ Document uploaded: {file_name} for employee {employee_id}")
             return created_document
             
@@ -135,6 +145,162 @@ class DocumentUseCase:
     async def get_employee_document_summary(self, employee_id: UUID) -> Dict[str, Any]:
         """Get document summary for an employee."""
         return await self.document_repository.get_employee_document_summary(employee_id)
+    
+    async def bulk_approve_documents(
+        self,
+        document_ids: List[UUID],
+        reviewer_id: UUID,
+        reviewer_notes: Optional[str] = None
+    ) -> Dict[str, int]:
+        """Bulk approve multiple documents."""
+        
+        results = {"successful": 0, "failed": 0, "employees_notified": 0}
+        
+        for document_id in document_ids:
+            try:
+                # Get document and employee
+                document = await self.document_repository.get_by_id(document_id)
+                if not document:
+                    print(f"❌ Document {document_id} not found")
+                    results["failed"] += 1
+                    continue
+                
+                employee = await self.employee_repository.get_by_id(document.employee_id)
+                if not employee:
+                    print(f"❌ Employee for document {document_id} not found")
+                    results["failed"] += 1
+                    continue
+                
+                # Update document status
+                document.review_status = DocumentReviewStatus.APPROVED
+                document.reviewed_at = datetime.utcnow()
+                document.reviewed_by = reviewer_id
+                document.reviewer_notes = reviewer_notes
+                
+                await self.document_repository.update(document)
+                
+                # Send real-time notification
+                try:
+                    await RealTimeNotificationSender.send_document_review_result(
+                        employee=employee,
+                        document=document,
+                        approved=True,
+                        reviewer_notes=reviewer_notes
+                    )
+                    results["employees_notified"] += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to send notification for document {document_id}: {e}")
+                
+                results["successful"] += 1
+                
+            except Exception as e:
+                print(f"❌ Failed to approve document {document_id}: {e}")
+                results["failed"] += 1
+        
+        print(f"✅ Bulk document approval: {results['successful']} successful, {results['failed']} failed")
+        return results
+    
+    async def bulk_reject_documents(
+        self,
+        document_rejections: List[Dict[str, Any]],  # [{"document_id": UUID, "reason": str}]
+        reviewer_id: UUID
+    ) -> Dict[str, int]:
+        """Bulk reject multiple documents with individual reasons."""
+        
+        results = {"successful": 0, "failed": 0, "employees_notified": 0}
+        
+        for rejection in document_rejections:
+            try:
+                document_id = rejection["document_id"]
+                reason = rejection["reason"]
+                
+                # Get document and employee
+                document = await self.document_repository.get_by_id(document_id)
+                if not document:
+                    print(f"❌ Document {document_id} not found")
+                    results["failed"] += 1
+                    continue
+                
+                employee = await self.employee_repository.get_by_id(document.employee_id)
+                if not employee:
+                    print(f"❌ Employee for document {document_id} not found")
+                    results["failed"] += 1
+                    continue
+                
+                # Update document status
+                document.review_status = DocumentReviewStatus.REQUIRES_REPLACEMENT
+                document.reviewed_at = datetime.utcnow()
+                document.reviewed_by = reviewer_id
+                document.reviewer_notes = reason
+                
+                await self.document_repository.update(document)
+                
+                # Send real-time notification
+                try:
+                    await RealTimeNotificationSender.send_document_review_result(
+                        employee=employee,
+                        document=document,
+                        approved=False,
+                        reviewer_notes=reason
+                    )
+                    results["employees_notified"] += 1
+                except Exception as e:
+                    print(f"⚠️ Failed to send notification for document {document_id}: {e}")
+                
+                results["successful"] += 1
+                
+            except Exception as e:
+                document_id = rejection.get("document_id", "unknown")
+                print(f"❌ Failed to reject document {document_id}: {e}")
+                results["failed"] += 1
+        
+        print(f"✅ Bulk document rejection: {results['successful']} successful, {results['failed']} failed")
+        return results
+    
+    async def bulk_download_documents(
+        self,
+        document_ids: List[UUID],
+        requester_id: UUID
+    ) -> Dict[str, Any]:
+        """Bulk download multiple documents (returns file paths for ZIP creation)."""
+        
+        # This would typically create a ZIP file with all requested documents
+        # For now, return the file paths
+        
+        results = {"successful": [], "failed": [], "total_size": 0}
+        
+        for document_id in document_ids:
+            try:
+                document = await self.document_repository.get_by_id(document_id)
+                if not document:
+                    results["failed"].append({"document_id": str(document_id), "reason": "Document not found"})
+                    continue
+                
+                # Check if file exists
+                file_path = Path(document.file_path)
+                if not file_path.exists():
+                    results["failed"].append({"document_id": str(document_id), "reason": "File not found on disk"})
+                    continue
+                
+                file_info = {
+                    "document_id": str(document_id),
+                    "file_path": str(file_path),
+                    "file_name": document.file_name,
+                    "document_type": document.document_type.value,
+                    "file_size": file_path.stat().st_size if file_path.exists() else 0
+                }
+                
+                results["successful"].append(file_info)
+                results["total_size"] += file_info["file_size"]
+                
+                # Log the download request
+                print(f"📁 Document {document_id} queued for download by user {requester_id}")
+                
+            except Exception as e:
+                results["failed"].append({"document_id": str(document_id), "reason": str(e)})
+        
+        print(f"✅ Bulk download prepared: {len(results['successful'])} files, {results['total_size']} bytes")
+        return results
     
     # Private helper methods
     

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, validator
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -154,18 +154,37 @@ class BulkDocumentActionRequest(BaseModel):
     action: str = Field(..., description="Action to perform (approve, reject, request_replacement)")
     notes: Optional[str] = Field(None, max_length=1000, description="Notes for all documents")
     
-    @validator('action')
+    @field_validator('action')
     def validate_action(cls, v):
         allowed_actions = ['approve', 'reject', 'request_replacement']
         if v not in allowed_actions:
             raise ValueError(f'Action must be one of: {allowed_actions}')
         return v
     
-    @validator('document_ids')
+    @field_validator('document_ids')
     def validate_document_ids(cls, v):
         if len(set(v)) != len(v):
             raise ValueError('Duplicate document IDs not allowed')
         return v
+    
+class BulkDocumentApprovalRequest(BaseModel):
+    """Request for bulk document approval."""
+    document_ids: List[UUID] = Field(..., min_items=1, max_items=50)
+    notes: Optional[str] = Field(None, max_length=1000)
+    
+    @field_validator('document_ids')
+    def validate_document_ids(cls, v):
+        if len(set(v)) != len(v):
+            raise ValueError('Duplicate document IDs not allowed')
+        return v
+
+class BulkNotificationRequest(BaseModel):
+    """Request for bulk notifications."""
+    user_ids: List[UUID] = Field(..., min_items=1, max_items=100)
+    notification_type: str = Field(..., description="Notification type")
+    title: str = Field(..., max_length=255)
+    message: str = Field(..., max_length=2000)
+    additional_data: Optional[Dict[str, Any]] = None
 
 
 # Analytics and Reporting Schemas

@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional, List
 from uuid import UUID   
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
+from app.infrastructure.database.connections import db_connection
 from app.presentation.api.dependencies import require_admin_access
 from app.core.entities.user_claims import UserClaims
 from app.presentation.schema.analytics_schema import (
@@ -46,18 +48,94 @@ async def get_admin_analytics(
 
 
 @router.get("/verification-metrics", response_model=VerificationMetricsResponse)
-async def get_verification_metrics(
-    days: int = Query(30, ge=1, le=365),
-    user_claims: UserClaims = Depends(require_admin_access),
-    employee_repository = Depends(get_employee_repository)
-):
-    """Get detailed verification process metrics."""
+async def _get_verification_metrics(employee_repository, start_date: datetime, end_date: datetime) -> VerificationMetricsResponse:
+    """Calculate actual verification process metrics."""
+
+    async with db_connection.async_session() as session:
+        # Get submission counts
+        submissions_result = await session.execute(text("""
+            SELECT COUNT(*) as total,
+                   COUNT(CASE WHEN verification_status = 'VERIFIED' THEN 1 END) as completed,
+                   COUNT(CASE WHEN verification_status = 'REJECTED' THEN 1 END) as rejected,
+                   COUNT(CASE WHEN verification_status IN (
+                       'PENDING_DETAILS_REVIEW', 'PENDING_DOCUMENTS_REVIEW', 
+                       'PENDING_ROLE_ASSIGNMENT', 'PENDING_FINAL_APPROVAL'
+                   ) THEN 1 END) as pending
+            FROM employees 
+            WHERE submitted_at BETWEEN :start_date AND :end_date
+        """), {"start_date": start_date, "end_date": end_date})
+        
+        metrics = submissions_result.fetchone()
+        
+        # Calculate average processing time
+        processing_time_result = await session.execute(text("""
+            SELECT AVG(EXTRACT(epoch FROM (final_approved_at - submitted_at))/86400) as avg_days
+            FROM employees 
+            WHERE verification_status = 'VERIFIED' 
+            AND submitted_at BETWEEN :start_date AND :end_date
+            AND final_approved_at IS NOT NULL
+        """), {"start_date": start_date, "end_date": end_date})
+        
+        avg_processing = processing_time_result.scalar() or 0
+        
+        # Get stage-specific metrics
+        stage_metrics = {}
+        stages = [
+            ("details_review", "PENDING_DETAILS_REVIEW"),
+            ("documents_review", "PENDING_DOCUMENTS_REVIEW"),
+            ("role_assignment", "PENDING_ROLE_ASSIGNMENT"),
+            ("final_approval", "PENDING_FINAL_APPROVAL")
+        ]
+        
+        for stage_name, status in stages:
+            stage_result = await session.execute(text("""
+                SELECT COUNT(*) as pending_count,
+                       AVG(EXTRACT(epoch FROM (NOW() - submitted_at))/3600) as avg_time_hours
+                FROM employees 
+                WHERE verification_status = :status
+            """), {"status": status})
+            
+            stage_data = stage_result.fetchone()
+            stage_metrics[stage_name] = {
+                "avg_time_hours": round(stage_data.avg_time_hours or 0, 1),
+                "pending_count": stage_data.pending_count or 0
+            }
+        
+        # Calculate completion rate
+        completion_rate = (metrics.completed / metrics.total * 100) if metrics.total > 0 else 0
+        
+        return VerificationMetricsResponse(
+            total_submissions=metrics.total,
+            completed_verifications=metrics.completed,
+            pending_reviews=metrics.pending,
+            rejected_profiles=metrics.rejected,
+            completion_rate=round(completion_rate, 1),
+            average_processing_days=round(avg_processing, 1),
+            stage_metrics=stage_metrics,
+            daily_trends=await _get_daily_trends(session, start_date, end_date)
+        )
+
+async def _get_daily_trends(session, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+    """Get daily submission and completion trends."""
     
-    end_date = datetime.now(datetime.timezone.utc())
-    start_date = end_date - timedelta(days=days)
+    trends_result = await session.execute(text("""
+        SELECT DATE(submitted_at) as date,
+               COUNT(*) as submissions,
+               COUNT(CASE WHEN verification_status = 'VERIFIED' THEN 1 END) as completions
+        FROM employees 
+        WHERE submitted_at BETWEEN :start_date AND :end_date
+        GROUP BY DATE(submitted_at)
+        ORDER BY DATE(submitted_at)
+    """), {"start_date": start_date, "end_date": end_date})
     
-    metrics = await _get_verification_metrics(employee_repository, start_date, end_date)
-    return metrics
+    return [
+        {
+            "date": row.date.strftime("%Y-%m-%d"),
+            "submissions": row.submissions,
+            "completions": row.completions
+        }
+        for row in trends_result.fetchall()
+    ]
 
 
 @router.get("/admin-workload", response_model=AdminWorkloadResponse) 

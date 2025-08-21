@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from enum import Enum
+from uuid import uuid4
 
 
 class DocumentType(str, Enum):
@@ -25,6 +26,22 @@ class DocumentReviewStatus(str, Enum):
     REJECTED = "REJECTED"
     REQUIRES_REPLACEMENT = "REQUIRES_REPLACEMENT"
 
+class DocumentVersion(str, Enum):
+    """Document version tracking."""
+    ORIGINAL = "ORIGINAL"
+    REVISION_1 = "REVISION_1"
+    REVISION_2 = "REVISION_2"
+    REVISION_3 = "REVISION_3"
+
+@dataclass
+class DocumentVersionInfo:
+    """Document version information."""
+    version: DocumentVersion
+    parent_document_id: Optional[UUID] = None
+    version_notes: Optional[str] = None
+    superseded_at: Optional[datetime] = None
+    is_current: bool = True
+
 
 @dataclass
 class EmployeeDocument:
@@ -39,6 +56,17 @@ class EmployeeDocument:
     mime_type: str
     uploaded_at: datetime
     uploaded_by: UUID
+
+    # Version tracking
+    version: DocumentVersion = DocumentVersion.ORIGINAL
+    parent_document_id: Optional[UUID] = None
+    version_notes: Optional[str] = None
+    superseded_at: Optional[datetime] = None
+    is_current: bool = True
+
+    # Expiry tracking
+    expires_at: Optional[datetime] = None
+    expiry_reminder_sent: bool = False
     
     # Review fields
     reviewed_by: Optional[UUID] = None
@@ -126,3 +154,56 @@ class EmployeeDocument:
             "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
             "is_required": self.is_required
         }
+    
+    def create_new_version(self, new_file_path: str, new_file_name: str, version_notes: str) -> 'EmployeeDocument':
+        """Create a new version of this document."""
+        next_version = self._get_next_version()
+        
+        new_doc = EmployeeDocument(
+            id=uuid4(),
+            employee_id=self.employee_id,
+            document_type=self.document_type,
+            file_name=new_file_name,
+            file_path=new_file_path,
+            file_size=0,  # Will be set when file is saved
+            mime_type=self.mime_type,
+            uploaded_at=datetime.utcnow(),
+            uploaded_by=self.uploaded_by,
+            review_status=DocumentReviewStatus.PENDING,
+            is_required=self.is_required,
+            version=next_version,
+            parent_document_id=self.id,
+            version_notes=version_notes
+        )
+        
+        # Mark current document as superseded
+        self.is_current = False
+        self.superseded_at = datetime.utcnow()
+        
+        return new_doc
+    
+    def _get_next_version(self) -> DocumentVersion:
+        """Get the next version number."""
+        version_order = [
+            DocumentVersion.ORIGINAL,
+            DocumentVersion.REVISION_1,
+            DocumentVersion.REVISION_2,
+            DocumentVersion.REVISION_3
+        ]
+        
+        current_index = version_order.index(self.version)
+        if current_index < len(version_order) - 1:
+            return version_order[current_index + 1]
+        else:
+            raise ValueError("Maximum document versions reached")
+    
+    def is_expired(self) -> bool:
+        """Check if document has expired."""
+        return self.expires_at and datetime.utcnow() > self.expires_at
+    
+    def days_until_expiry(self) -> Optional[int]:
+        """Get days until document expires."""
+        if not self.expires_at:
+            return None
+        delta = self.expires_at - datetime.utcnow()
+        return max(0, delta.days)
