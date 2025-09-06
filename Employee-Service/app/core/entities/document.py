@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from uuid import UUID
 from enum import Enum
@@ -80,7 +80,7 @@ class EmployeeDocument:
     
     def __post_init__(self):
         if self.uploaded_at is None:
-            self.uploaded_at = datetime.utcnow()
+            self.uploaded_at = datetime.now(timezone.utc)
     
     def is_pending_review(self) -> bool:
         """Check if document is pending review."""
@@ -101,21 +101,21 @@ class EmployeeDocument:
         """Approve the document."""
         self.review_status = DocumentReviewStatus.APPROVED
         self.reviewed_by = reviewer_id
-        self.reviewed_at = datetime.utcnow()
+        self.reviewed_at = datetime.now(timezone.utc)
         self.review_notes = notes
     
     def reject_document(self, reviewer_id: UUID, reason: str) -> None:
         """Reject the document."""
         self.review_status = DocumentReviewStatus.REJECTED
         self.reviewed_by = reviewer_id
-        self.reviewed_at = datetime.utcnow()
+        self.reviewed_at = datetime.now(timezone.utc)
         self.review_notes = reason
     
     def request_replacement(self, reviewer_id: UUID, reason: str) -> None:
         """Request document replacement."""
         self.review_status = DocumentReviewStatus.REQUIRES_REPLACEMENT
         self.reviewed_by = reviewer_id
-        self.reviewed_at = datetime.utcnow()
+        self.reviewed_at = datetime.now(timezone.utc)
         self.review_notes = reason
     
     def get_file_extension(self) -> str:
@@ -165,9 +165,9 @@ class EmployeeDocument:
             document_type=self.document_type,
             file_name=new_file_name,
             file_path=new_file_path,
-            file_size=0,  # Will be set when file is saved
+            file_size=0,  
             mime_type=self.mime_type,
-            uploaded_at=datetime.utcnow(),
+            uploaded_at=datetime.now(timezone.utc),
             uploaded_by=self.uploaded_by,
             review_status=DocumentReviewStatus.PENDING,
             is_required=self.is_required,
@@ -178,7 +178,7 @@ class EmployeeDocument:
         
         # Mark current document as superseded
         self.is_current = False
-        self.superseded_at = datetime.utcnow()
+        self.superseded_at = datetime.now(timezone.utc)
         
         return new_doc
     
@@ -199,11 +199,11 @@ class EmployeeDocument:
     
     def is_expired(self) -> bool:
         """Check if document has expired."""
-        return self.expires_at and datetime.utcnow() > self.expires_at
+        return self.expires_at and datetime.now(timezone.utc) > self.expires_at
     
     def days_until_expiry(self) -> Optional[int]:
         """Get days until document expires."""
         if not self.expires_at:
             return None
-        delta = self.expires_at - datetime.utcnow()
+        delta = self.expires_at - datetime.now(timezone.utc)
         return max(0, delta.days)

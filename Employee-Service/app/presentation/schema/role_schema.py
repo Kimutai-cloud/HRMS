@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from uuid import UUID
 
@@ -24,6 +24,10 @@ class RoleAssignmentResponse(BaseModel):
     role_code: str
     scope: Dict[str, Any]
     created_at: datetime
+    is_active: bool = True
+    assigned_by: Optional[UUID] = None
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[UUID] = None
     
     class Config:
         from_attributes = True

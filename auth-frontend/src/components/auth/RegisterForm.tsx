@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, CheckCircle, Clock } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
-import { useNotification } from '../../context/NotificationContext';
-import Button from '../ui/Button';
-import Input from '../ui/Input';
-import Card from '../ui/Card';
-import { type RegisterData } from '../../types/auth';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNotification } from '@/context/NotificationContext';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
+import { type RegisterData } from '@/types/auth';
 
 interface RegisterFormProps {
   onSwitchToLogin: () => void;

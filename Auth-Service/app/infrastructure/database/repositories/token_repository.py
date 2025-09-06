@@ -1,6 +1,6 @@
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 
@@ -71,7 +71,7 @@ class TokenRepository(TokenRepositoryInterface):
     async def cleanup_expired_tokens(self) -> int:
         result = await self.session.execute(
             delete(TokenModel)
-            .where(TokenModel.expires_at < datetime.utcnow())
+            .where(TokenModel.expires_at < datetime.now(timezone.utc))
         )
         await self.session.commit()
         return result.rowcount

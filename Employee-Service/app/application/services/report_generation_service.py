@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Any, Tuple
-from uuid import UUID
-from datetime import datetime, timedelta, date
+from uuid import UUID, uuid4
+from datetime import datetime, timezone, timedelta, date
 from enum import Enum
 from dataclasses import dataclass, field
 import json
@@ -111,11 +111,11 @@ class ReportGenerationService:
         end_datetime = datetime.combine(target_date, datetime.max.time())
         
         report = GeneratedReport(
-            id=UUID(),
+            id=uuid4(),
             type=ReportType.DAILY_OPERATIONS,
             title=f"Daily Operations Report - {target_date.strftime('%B %d, %Y')}",
             description=f"Comprehensive operational overview for {target_date.strftime('%A, %B %d, %Y')}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             generated_by=generated_by,
             period_start=target_date,
             period_end=target_date
@@ -155,11 +155,11 @@ class ReportGenerationService:
         end_datetime = datetime.combine(period_end, datetime.max.time())
         
         report = GeneratedReport(
-            id=UUID(),
+            id=uuid4(),
             type=ReportType.PROCESS_EFFICIENCY,
             title=f"Process Efficiency Report - {period_start.strftime('%b %d')} to {period_end.strftime('%b %d, %Y')}",
             description=f"Detailed analysis of verification process efficiency from {period_start} to {period_end}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             generated_by=generated_by,
             period_start=period_start,
             period_end=period_end
@@ -199,11 +199,11 @@ class ReportGenerationService:
         end_datetime = datetime.combine(week_end, datetime.max.time())
         
         report = GeneratedReport(
-            id=UUID(),
+            id=uuid4(),
             type=ReportType.WEEKLY_SUMMARY,
             title=f"Weekly Summary - Week of {week_start.strftime('%B %d, %Y')}",
             description=f"Weekly operational summary from {week_start} to {week_end}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             generated_by=generated_by,
             period_start=week_start,
             period_end=week_end
@@ -242,11 +242,11 @@ class ReportGenerationService:
         end_datetime = datetime.combine(period_end, datetime.max.time())
         
         report = GeneratedReport(
-            id=UUID(),
+            id=uuid4(),
             type=ReportType.SLA_COMPLIANCE,
             title=f"SLA Compliance Report - {period_start.strftime('%b %d')} to {period_end.strftime('%b %d, %Y')}",
             description=f"Service Level Agreement compliance analysis from {period_start} to {period_end}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc),
             generated_by=generated_by,
             period_start=period_start,
             period_end=period_end

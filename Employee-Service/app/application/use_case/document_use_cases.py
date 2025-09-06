@@ -1,6 +1,9 @@
 from uuid import uuid4, UUID
-from datetime import datetime
-from typing import List, Optional, Dict, Any, BinaryIO
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any, BinaryIO, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.application.services.notification_service import NotificationService
 from pathlib import Path
 import aiofiles
 import aiofiles.os
@@ -39,12 +42,14 @@ class DocumentUseCase:
         document_repository: DocumentRepositoryInterface,
         employee_repository: EmployeeRepositoryInterface,
         event_repository: EventRepositoryInterface,
-        auth_service_client: AuthServiceClient
+        auth_service_client: AuthServiceClient,
+        notification_service: Optional['NotificationService'] = None
     ):
         self.document_repository = document_repository
         self.employee_repository = employee_repository
         self.event_repository = event_repository
         self.auth_service_client = auth_service_client
+        self.notification_service = notification_service
     
     async def upload_document(
         self,
@@ -96,7 +101,7 @@ class DocumentUseCase:
             file_path=str(file_path),
             file_size=len(file_content),
             mime_type=mime_type,
-            uploaded_at=datetime.utcnow(),
+            uploaded_at=datetime.now(timezone.utc),
             uploaded_by=uploaded_by,
             review_status=DocumentReviewStatus.PENDING,
             is_required=is_required
@@ -118,7 +123,7 @@ class DocumentUseCase:
                     "uploaded_by": str(uploaded_by),
                     "is_required": is_required
                 },
-                occurred_at=datetime.utcnow()
+                occurred_at=datetime.now(timezone.utc)
             )
             await self.event_repository.save_event(event)
             
@@ -173,7 +178,7 @@ class DocumentUseCase:
                 
                 # Update document status
                 document.review_status = DocumentReviewStatus.APPROVED
-                document.reviewed_at = datetime.utcnow()
+                document.reviewed_at = datetime.now(timezone.utc)
                 document.reviewed_by = reviewer_id
                 document.reviewer_notes = reviewer_notes
                 
@@ -229,7 +234,7 @@ class DocumentUseCase:
                 
                 # Update document status
                 document.review_status = DocumentReviewStatus.REQUIRES_REPLACEMENT
-                document.reviewed_at = datetime.utcnow()
+                document.reviewed_at = datetime.now(timezone.utc)
                 document.reviewed_by = reviewer_id
                 document.reviewer_notes = reason
                 
@@ -487,6 +492,20 @@ class DocumentUseCase:
         # Check if all required documents are approved for this employee
         await self._check_documents_completion(document.employee_id)
         
+        # Send notification about document approval
+        if hasattr(self, 'notification_service'):
+            try:
+                # Get the employee for notification
+                employee = await self.employee_repository.get_by_id(updated_document.employee_id)
+                if employee:
+                    await self.notification_service.notify_document_approved(
+                        employee=employee,
+                        document=updated_document,
+                        reviewer_notes=notes
+                    )
+            except Exception as e:
+                print(f"⚠️ Document approval notification failed (non-critical): {e}")
+        
         # Emit domain event
         event = DomainEvent(
             id=uuid4(),
@@ -498,7 +517,7 @@ class DocumentUseCase:
                 "reviewed_by": str(reviewer_id),
                 "notes": notes
             },
-            occurred_at=datetime.utcnow()
+            occurred_at=datetime.now(timezone.utc)
         )
         await self.event_repository.save_event(event)
         
@@ -523,6 +542,20 @@ class DocumentUseCase:
         # Save to database
         updated_document = await self.document_repository.update(document)
         
+        # Send notification about document rejection
+        if hasattr(self, 'notification_service'):
+            try:
+                # Get the employee for notification
+                employee = await self.employee_repository.get_by_id(updated_document.employee_id)
+                if employee:
+                    await self.notification_service.notify_document_rejected(
+                        employee=employee,
+                        document=updated_document,
+                        rejection_reason=reason
+                    )
+            except Exception as e:
+                print(f"⚠️ Document rejection notification failed (non-critical): {e}")
+        
         # Emit domain event
         event = DomainEvent(
             id=uuid4(),
@@ -534,7 +567,7 @@ class DocumentUseCase:
                 "reviewed_by": str(reviewer_id),
                 "reason": reason
             },
-            occurred_at=datetime.utcnow()
+            occurred_at=datetime.now(timezone.utc)
         )
         await self.event_repository.save_event(event)
         
@@ -570,7 +603,7 @@ class DocumentUseCase:
                 "reviewed_by": str(reviewer_id),
                 "reason": reason
             },
-            occurred_at=datetime.utcnow()
+            occurred_at=datetime.now(timezone.utc)
         )
         await self.event_repository.save_event(event)
         
@@ -613,7 +646,7 @@ class DocumentUseCase:
                     "document_type": document.document_type.value,
                     "deleted_by": str(requester_user_id)
                 },
-                occurred_at=datetime.utcnow()
+                occurred_at=datetime.now(timezone.utc)
             )
             await self.event_repository.save_event(event)
             

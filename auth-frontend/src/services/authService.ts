@@ -11,9 +11,57 @@ import {
 class AuthService {
   private baseURL = "http://localhost:8000/api/v1";
   private tokens: AuthTokens | null = null;
+  private readonly ACCESS_TOKEN_KEY = 'hrms_access_token';
+  private readonly REFRESH_TOKEN_KEY = 'hrms_refresh_token';
+  private readonly TOKEN_TYPE_KEY = 'hrms_token_type';
+
+  constructor() {
+    // Load tokens from localStorage on initialization
+    this.loadTokensFromStorage();
+  }
+
+  private loadTokensFromStorage() {
+    try {
+      const accessToken = localStorage.getItem(this.ACCESS_TOKEN_KEY);
+      const refreshToken = localStorage.getItem(this.REFRESH_TOKEN_KEY);
+      const tokenType = localStorage.getItem(this.TOKEN_TYPE_KEY);
+      
+      if (accessToken && refreshToken) {
+        this.tokens = {
+          accessToken,
+          refreshToken,
+          tokenType: tokenType || 'bearer'
+        };
+      }
+    } catch (error) {
+      console.error('Error loading tokens from storage:', error);
+      this.clearTokens();
+    }
+  }
+
+  private saveTokensToStorage(tokens: AuthTokens) {
+    try {
+      localStorage.setItem(this.ACCESS_TOKEN_KEY, tokens.accessToken);
+      localStorage.setItem(this.REFRESH_TOKEN_KEY, tokens.refreshToken);
+      localStorage.setItem(this.TOKEN_TYPE_KEY, tokens.tokenType);
+    } catch (error) {
+      console.error('Error saving tokens to storage:', error);
+    }
+  }
+
+  private clearTokensFromStorage() {
+    try {
+      localStorage.removeItem(this.ACCESS_TOKEN_KEY);
+      localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+      localStorage.removeItem(this.TOKEN_TYPE_KEY);
+    } catch (error) {
+      console.error('Error clearing tokens from storage:', error);
+    }
+  }
 
   setTokens(tokens: AuthTokens) {
     this.tokens = tokens;
+    this.saveTokensToStorage(tokens);
   }
 
   getAccessToken(): string | null {
@@ -22,6 +70,7 @@ class AuthService {
 
   clearTokens() {
     this.tokens = null;
+    this.clearTokensFromStorage();
   }
 
   private async request<T>(

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.use_case.user_use_cases import UserUseCase
-from app.presentation.schema.user_schema import UserResponse, UpdateProfileRequest
+from app.presentation.schema.user_schema import UserResponse, UpdateProfileRequest, ChangePasswordRequest
 from app.presentation.api.dependencies import get_user_use_case, get_current_user
 from app.core.entities.user import User
 from app.core.exceptions.auth_exceptions import UserNotFoundException
@@ -37,6 +37,38 @@ async def update_current_user_profile(
             full_name=request.full_name
         )
         return updated_user
+    except UserNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.post("/me/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    user_use_case: UserUseCase = Depends(get_user_use_case)
+):
+    """Change user password."""
+    try:
+        success = await user_use_case.change_password(
+            user_id=current_user.id,
+            current_password=request.current_password,
+            new_password=request.new_password
+        )
+        if success:
+            return {"success": True, "message": "Password changed successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to change password"
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except UserNotFoundException as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

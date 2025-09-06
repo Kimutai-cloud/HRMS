@@ -5,9 +5,10 @@ import logging
 
 from app.config.settings import settings
 from app.config.logging import setup_logging
-from app.presentation.api.v1 import employees, roles, me, admin, profile 
+from app.presentation.api.v1 import employees, roles, me, admin, profile, analytics, reports, user_guidance, notifications, websocket_endpoint, departments, manager_tasks, employee_tasks, task_comments 
 from app.presentation.api.v1.health import router as health_router
 from app.presentation.middleware.cors import setup_cors
+from app.presentation.middleware.cors_preflight import CORSPreflightMiddleware
 from app.presentation.middleware.error_handler import (
     employee_exception_handler,
     role_exception_handler,
@@ -39,6 +40,8 @@ app = FastAPI(
 # Setup CORS
 setup_cors(app)
 
+app.add_middleware(CORSPreflightMiddleware)
+
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(profile.router, prefix="/api/v1")
 
@@ -55,6 +58,16 @@ async def service_info():
             "me": "/api/v1/me",
             "profile": "/api/v1/profile",
             "admin": "/api/v1/admin",
+            "analytics": "/api/v1/analytics",
+            "reports": "/api/v1/reports",
+            "guidance": "/api/v1/guidance",
+            "notifications": "/api/v1/notifications",
+            "websocket": "/api/v1/ws",
+            "departments": "/api/v1/departments",
+            "manager_tasks": "/api/v1/manager/tasks",
+            "employee_tasks": "/api/v1/employee/tasks",
+            "task_comments": "/api/v1/tasks/{task_id}/comments",
+            "user_task_comments": "/api/v1/user/task-comments",
             "health": "/api/v1/health",
             "docs": "/docs" if settings.DEBUG else None
         },
@@ -62,6 +75,9 @@ async def service_info():
             "Employee profile submission and verification",
             "Multi-stage admin approval workflow",
             "Document upload and review system",
+            "Department management system",
+            "Task management and assignment system",
+            "Task collaboration and commenting",
             "Role-based access control",
             "Auth Service integration",
             "Audit logging and compliance"
@@ -119,6 +135,17 @@ app.include_router(health_router, prefix="/api/v1")
 app.include_router(employees.router, prefix="/api/v1")
 app.include_router(roles.router, prefix="/api/v1")
 app.include_router(me.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/api/v1")
+app.include_router(user_guidance.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(websocket_endpoint.router, prefix="/api/v1")
+app.include_router(departments.router, prefix="/api/v1")
+app.include_router(manager_tasks.router, prefix="/api/v1")
+app.include_router(employee_tasks.router, prefix="/api/v1")
+app.include_router(task_comments.router, prefix="/api/v1")
+# Also include the user_comments_router from task_comments
+app.include_router(task_comments.user_comments_router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -143,6 +170,11 @@ async def service_info():
             "employees": "/api/v1/employees",
             "roles": "/api/v1/roles",
             "me": "/api/v1/me",
+            "analytics": "/api/v1/analytics",
+            "reports": "/api/v1/reports",
+            "guidance": "/api/v1/guidance",
+            "notifications": "/api/v1/notifications",
+            "websocket": "/api/v1/ws",
             "health": "/api/v1/health",
             "docs": "/docs" if settings.DEBUG else None
         }

@@ -1,6 +1,6 @@
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, update
 from sqlalchemy.exc import IntegrityError
@@ -106,7 +106,7 @@ class RoleRepository(RoleRepositoryInterface):
             return False
         
         db_assignment.is_active = False
-        db_assignment.revoked_at = datetime.now(datetime.timezone.utc())
+        db_assignment.revoked_at = datetime.now(timezone.utc)
         
         await self.session.commit()
         return True
@@ -183,7 +183,7 @@ class RoleRepository(RoleRepositoryInterface):
             )
             .values(
                 is_active=False,
-                revoked_at=datetime.utcnow(),
+                revoked_at=datetime.now(timezone.utc),
                 revoked_by=revoked_by
             )
         )
@@ -216,7 +216,7 @@ class RoleRepository(RoleRepositoryInterface):
                 user_id=to_user_id,
                 role_id=role.id,
                 scope={},
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             
             await self.assign_role(new_assignment)

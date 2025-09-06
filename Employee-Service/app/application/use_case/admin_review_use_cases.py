@@ -1,5 +1,5 @@
 from uuid import uuid4, UUID
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -167,6 +167,14 @@ class AdminReviewUseCase:
         employee.advance_verification_stage(VerificationStatus.PENDING_DOCUMENTS_REVIEW, reviewer_id)
         
         updated_employee = await self.employee_repository.update(employee)
+        
+        # Sync with Auth Service
+        try:
+            actual_status = updated_employee.verification_status.value
+            await self.auth_service_client.update_user_profile_status(updated_employee.user_id, actual_status)
+            print(f"✅ Auth Service synced to {actual_status} after details approval")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after details approval: {e}")
 
         if hasattr(self, 'notification_service'):
             try:
@@ -228,7 +236,7 @@ class AdminReviewUseCase:
                     changes={
                         "status_change": "PENDING_DETAILS_REVIEW -> PENDING_DOCUMENTS_REVIEW",
                         "reviewer_notes": notes,
-                        "approved_at": datetime.utcnow().isoformat()
+                        "approved_at": datetime.now(timezone.utc).isoformat()
                     },
                     context=audit_context,
                     reasoning=notes
@@ -306,6 +314,26 @@ class AdminReviewUseCase:
         employee.advance_verification_stage(VerificationStatus.PENDING_ROLE_ASSIGNMENT, reviewer_id)
         
         updated_employee = await self.employee_repository.update(employee)
+        
+        # Sync with Auth Service  
+        try:
+            actual_status = updated_employee.verification_status.value
+            await self.auth_service_client.update_user_profile_status(updated_employee.user_id, actual_status)
+            print(f"✅ Auth Service synced to {actual_status} after documents approval")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after documents approval: {e}")
+
+        # Send notification to employee about documents approval
+        if hasattr(self, 'notification_service'):
+            try:
+                await self.notification_service.notify_stage_advanced(
+                    employee=updated_employee,
+                    from_stage="DOCUMENTS_REVIEW",
+                    to_stage="ROLE_ASSIGNMENT", 
+                    notes=notes
+                )
+            except Exception as e:
+                print(f"⚠️ Notification failed (non-critical): {e}")
         
         # Send real-time WebSocket notification
         try:
@@ -388,9 +416,8 @@ class AdminReviewUseCase:
         
         try:
         
-            newcomer_role = await self.role_repository.get_role_by_code(RoleCode.NEWCOMER)
-            if newcomer_role:
-                await self.role_repository.revoke_role(employee.user_id, newcomer_role.id)
+            # First revoke all existing roles to ensure only one active role
+            await self.role_repository.revoke_all_user_roles(employee.user_id, reviewer_id)
    
             from app.core.entities.role import RoleAssignment
             assignment = RoleAssignment(
@@ -398,17 +425,40 @@ class AdminReviewUseCase:
                 user_id=employee.user_id,
                 role_id=role.id,
                 scope={},
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             await self.role_repository.assign_role(assignment)
             
         except Exception as e:
+            print(f"❌ Exception in role assignment: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise EmployeeValidationException(f"Failed to assign role: {str(e)}")
         
    
         employee.advance_verification_stage(VerificationStatus.PENDING_FINAL_APPROVAL, reviewer_id)
         
         updated_employee = await self.employee_repository.update(employee)
+        
+        # Sync with Auth Service
+        try:
+            actual_status = updated_employee.verification_status.value
+            await self.auth_service_client.update_user_profile_status(updated_employee.user_id, actual_status)
+            print(f"✅ Auth Service synced to {actual_status} after role assignment")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after role assignment: {e}")
+
+        # Send notification to employee about role assignment
+        if hasattr(self, 'notification_service'):
+            try:
+                await self.notification_service.notify_stage_advanced(
+                    employee=updated_employee,
+                    from_stage="ROLE_ASSIGNMENT", 
+                    to_stage="FINAL_APPROVAL",
+                    notes=f"Role assigned: {role_code.value}. {notes}" if notes else f"Role assigned: {role_code.value}"
+                )
+            except Exception as e:
+                print(f"⚠️ Notification failed (non-critical): {e}")
         
         # Send real-time WebSocket notification
         try:
@@ -489,10 +539,17 @@ class AdminReviewUseCase:
             )
 
         employee.final_approve(approver_id)
-        employee.hired_at = datetime.utcnow() 
+        employee.hired_at = datetime.now(timezone.utc) 
         
      
         updated_employee = await self.employee_repository.update(employee)
+        
+        # Send notification to employee about final approval/verification complete
+        if hasattr(self, 'notification_service'):
+            try:
+                await self.notification_service.notify_profile_approved(updated_employee)
+            except Exception as e:
+                print(f"⚠️ Notification failed (non-critical): {e}")
         
         # Send real-time WebSocket notification
         try:
@@ -513,9 +570,13 @@ class AdminReviewUseCase:
             notes=notes
         ))
         
-        await self.auth_service_client.update_user_profile_status(
-            updated_employee.user_id, "VERIFIED"
-        )
+        # Sync with Auth Service
+        try:
+            actual_status = updated_employee.verification_status.value
+            await self.auth_service_client.update_user_profile_status(updated_employee.user_id, actual_status)
+            print(f"✅ Auth Service synced to {actual_status} after final approval")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after final approval: {e}")
         
         await self._emit_stage_advanced_event(employee_id, "FINAL_APPROVAL", "VERIFIED", approver_id)
         
@@ -558,9 +619,25 @@ class AdminReviewUseCase:
             notes=reason
         ))
         
-        await self.auth_service_client.update_user_profile_status(
-            updated_employee.user_id, "REJECTED"
-        )
+        # Sync with Auth Service
+        try:
+            actual_status = updated_employee.verification_status.value
+            await self.auth_service_client.update_user_profile_status(updated_employee.user_id, actual_status)
+            print(f"✅ Auth Service synced to {actual_status} after rejection")
+        except Exception as e:
+            print(f"⚠️  Warning: Auth Service sync failed after rejection: {e}")
+
+        # Send notification to employee about profile rejection
+        if hasattr(self, 'notification_service'):
+            try:
+                await self.notification_service.notify_profile_rejected(
+                    employee=updated_employee,
+                    reason=reason,
+                    stage=current_stage,
+                    can_resubmit=True  # Allow resubmission after rejection
+                )
+            except Exception as e:
+                print(f"⚠️ Notification failed (non-critical): {e}")
         
         await self._emit_rejection_event(employee_id, current_stage, reason, reviewer_id)
         
@@ -622,7 +699,7 @@ class AdminReviewUseCase:
                     operation_details={
                         "stage": stage,
                         "reviewer_notes": notes,
-                        "operation_timestamp": datetime.utcnow().isoformat()
+                        "operation_timestamp": datetime.now(timezone.utc).isoformat()
                     },
                     context=audit_context,
                     results={
@@ -752,7 +829,7 @@ class AdminReviewUseCase:
             raise ForbiddenException("Admin role required")
         
         # Get overdue employees
-        cutoff_date = datetime.utcnow() - timedelta(days=days_threshold)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_threshold)
         
         # Get all pending employees
         all_pending = []
@@ -838,7 +915,12 @@ class AdminReviewUseCase:
         """Calculate days since a date."""
         if not since_date:
             return 0
-        return (datetime.utcnow() - since_date).days
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        # Ensure since_date is timezone aware
+        if since_date.tzinfo is None:
+            since_date = since_date.replace(tzinfo=timezone.utc)
+        return (now - since_date).days
     
     def _determine_priority(self, days_pending: int) -> str:
         """Determine priority based on days pending."""
@@ -875,7 +957,7 @@ class AdminReviewUseCase:
                 "reviewer_id": str(reviewer_id),
                 **(additional_data or {})
             },
-            occurred_at=datetime.utcnow()
+            occurred_at=datetime.now(timezone.utc)
         )
         await self.event_repository.save_event(event)
     
@@ -896,7 +978,7 @@ class AdminReviewUseCase:
                 "reason": reason,
                 "reviewer_id": str(reviewer_id)
             },
-            occurred_at=datetime.utcnow()
+            occurred_at=datetime.now(timezone.utc)
         )
         await self.event_repository.save_event(event)
 

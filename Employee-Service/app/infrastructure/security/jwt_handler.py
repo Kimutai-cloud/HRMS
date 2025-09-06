@@ -1,7 +1,8 @@
 
 from typing import Optional, Dict, Any
 import jwt
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from app.config.settings import settings
@@ -15,6 +16,7 @@ class JWTHandler:
         self.algorithm = settings.JWT_ALGORITHM
         self.audience = settings.JWT_AUDIENCE
         self.issuer = settings.JWT_ISSUER
+        self.logger = logging.getLogger(__name__)
     
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify JWT token and return enhanced claims with employee profile status."""
@@ -33,8 +35,8 @@ class JWTHandler:
                     "verify_exp": True,
                     "verify_aud": True,
                     "verify_iss": True,
-                    "verify_iat": True,
-                    "require_iat": True,
+                    "verify_iat": False,  # Keep disabled as Auth Service might not always include iat
+                    "require_iat": False,  # Keep disabled as Auth Service might not always include iat
                     "require_exp": True,
                     "require_aud": True,
                     "require_iss": True
@@ -48,7 +50,7 @@ class JWTHandler:
             
             # Check if token is not expired
             exp = payload.get("exp")
-            if exp and datetime.utcfromtimestamp(exp) < datetime.utcnow():
+            if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
                 print("❌ JWT validation failed: Token expired")
                 return None
             
@@ -58,14 +60,14 @@ class JWTHandler:
                 print(f"❌ JWT validation failed: Invalid token type '{token_type}'")
                 return None
             
-            # Extract employee profile status (new field from Auth Service)
+            # Extract employee profile status (synced field from Auth Service)
             employee_profile_status = payload.get("employee_profile_status")
             if employee_profile_status:
                 print(f"✅ JWT contains employee profile status: {employee_profile_status}")
             else:
-                # Handle backward compatibility with older tokens
-                print("⚠️  JWT missing employee_profile_status - using fallback")
-                employee_profile_status = "UNKNOWN"
+                # Handle backward compatibility with older tokens - default to NOT_STARTED for new users
+                print("⚠️  JWT missing employee_profile_status - using NOT_STARTED for new users")
+                employee_profile_status = "NOT_STARTED"
             
             validation_result = self._validate_payload_claims(payload)
             if not validation_result.is_valid:
@@ -73,14 +75,20 @@ class JWTHandler:
                     return None
                     
             return {
-                "user_id": payload.get("sub"),
+                "sub": payload.get("sub"),  # Keep original field for dependencies validation
+                "user_id": payload.get("sub"),  # Also provide as user_id for convenience
                 "email": payload.get("email"),
                 "employee_profile_status": employee_profile_status,
-                "token_type": token_type,
-                "issued_at": payload.get("iat"),
-                "expires_at": payload.get("exp"),
-                "audience": payload.get("aud"),
-                "issuer": payload.get("iss"),
+                "type": token_type,  # Keep original field name
+                "token_type": token_type,  # Also provide as token_type for convenience
+                "iat": payload.get("iat"),  # Keep original field
+                "issued_at": payload.get("iat"),  # Also provide convenience name
+                "exp": payload.get("exp"),  # Keep original field
+                "expires_at": payload.get("exp"),  # Also provide convenience name
+                "aud": payload.get("aud"),  # Keep original field
+                "audience": payload.get("aud"),  # Also provide convenience name
+                "iss": payload.get("iss"),  # Keep original field
+                "issuer": payload.get("iss"),  # Also provide convenience name
                 "raw_payload": payload  
             }
             
@@ -127,7 +135,7 @@ class JWTHandler:
         if payload.get("type") not in ["access", "refresh"]:
             return self.ValidationResult(False, f"Invalid token type: {payload.get('type')}")
         
-        now = datetime.utcnow().timestamp()
+        now = datetime.now(timezone.utc).timestamp()
         if payload.get("iat", 0) > now + 300:  
             return self.ValidationResult(False, "Token issued in the future")
         
@@ -144,8 +152,13 @@ class JWTHandler:
             "email": token_data["email"],
             "employee_profile_status": token_data["employee_profile_status"],
             "is_verified_profile": token_data["employee_profile_status"] == "VERIFIED",
-            "is_pending_verification": token_data["employee_profile_status"] == "PENDING_VERIFICATION",
-            "needs_profile_completion": token_data["employee_profile_status"] == "NOT_STARTED",
+            "is_pending_verification": token_data["employee_profile_status"] in [
+                "PENDING_DETAILS_REVIEW", 
+                "PENDING_DOCUMENTS_REVIEW",
+                "PENDING_ROLE_ASSIGNMENT", 
+                "PENDING_FINAL_APPROVAL"
+            ],
+            "needs_profile_completion": token_data["employee_profile_status"] in ["NOT_STARTED", "NOT_SUBMITTED"],
             "is_profile_rejected": token_data["employee_profile_status"] == "REJECTED"
         }
     
@@ -158,9 +171,20 @@ class JWTHandler:
         # Define endpoint access requirements
         endpoint_requirements = {
             "standard": ["VERIFIED"],  # Most endpoints require full verification
-            "newcomer": ["PENDING_VERIFICATION", "VERIFIED"],  # Limited access during verification
-            "profile_completion": ["NOT_STARTED", "REJECTED"],  # Profile setup endpoints
-            "internal": ["NOT_STARTED", "PENDING_VERIFICATION", "VERIFIED", "REJECTED"]  # Internal endpoints
+            "newcomer": [  # Limited access during verification process
+                "PENDING_DETAILS_REVIEW", 
+                "PENDING_DOCUMENTS_REVIEW",
+                "PENDING_ROLE_ASSIGNMENT", 
+                "PENDING_FINAL_APPROVAL",
+                "VERIFIED"
+            ],
+            "profile_completion": ["NOT_STARTED", "NOT_SUBMITTED", "REJECTED"],  # Profile setup endpoints
+            "internal": [  # Internal endpoints - all statuses allowed
+                "NOT_STARTED", "NOT_SUBMITTED", 
+                "PENDING_DETAILS_REVIEW", "PENDING_DOCUMENTS_REVIEW",
+                "PENDING_ROLE_ASSIGNMENT", "PENDING_FINAL_APPROVAL", 
+                "VERIFIED", "REJECTED"
+            ]
         }
         
         allowed_statuses = endpoint_requirements.get(endpoint_type, ["VERIFIED"])

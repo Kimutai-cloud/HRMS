@@ -1,0 +1,117 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(curl:*)",
+      "Bash(python test:*)",
+      "Bash(python:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker logs:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(npm run dev:*)",
+      "mcp__serena__find_symbol",
+      "mcp__serena__activate_project",
+      "mcp__serena__read_file",
+      "mcp__serena__replace_regex",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__find_file",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__write_memory",
+      "mcp__serena__read_memory",
+      "mcp__serena__execute_shell_command",
+      "mcp__serena__create_text_file",
+      "mcp__serena__list_memories",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__list_dir",
+      "mcp__serena__think_about_collected_information",
+      "mcp__serena__insert_after_symbol",
+      "mcp__serena__replace_symbol_body",
+      "Bash(cat:*)",
+      "Bash(docker ps:*)",
+      "Bash(rm:*)",
+      "Bash(docker restart:*)",
+      "Bash(mv:*)",
+      "Bash(sed:*)",
+      "mcp__TestSprite__testsprite_bootstrap_tests",
+      "mcp__TestSprite__testsprite_generate_code_summary",
+      "mcp__TestSprite__testsprite_generate_frontend_test_plan",
+      "mcp__TestSprite__testsprite_generate_standardized_prd",
+      "mcp__TestSprite__testsprite_generate_code_and_execute",
+      "Bash(node:*)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\testsprite_tests/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\testsprite_tests/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\Employee-Service\\app\\presentation\\middleware/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\Auth-Service/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\types/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\pages/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\hooks/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\hooks/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\components\\tasks/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\types/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\pages/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\pages/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\services/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)",
+      "Read(/C:\\Users\\admin\\Desktop\\Projects\\HRMS trial\\auth-frontend\\src\\contexts/**)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo Checking for library documentation needs... && echo %TOOL_INPUT% | findstr /R \"\\.py$ \\.js$ \\.ts$ \\.tsx$ \\.jsx$\" >nul 2>&1 && echo Code file detected - Context7 available for library docs || echo."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo %TOOL_INPUT% | findstr /R \"package\\.json requirements\\.txt Cargo\\.toml\" >nul 2>&1 && echo Dependencies file read - Consider using Context7 for library documentation || echo."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo %USER_PROMPT% | findstr /I /R \"library package documentation docs api\" >nul 2>&1 && echo Library-related query detected - Context7 MCP server available for up-to-date documentation || echo."
+          }
+        ]
+      }
+    ]
+  }
+}

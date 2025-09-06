@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 
 from app.core.entities.user_claims import UserClaims
@@ -108,7 +108,7 @@ async def get_dashboard_summary(
                 for metric in section.metrics[:3]  # Top 3 metrics per section
             ],
             "recommendations": report.recommendations[:5],  # Top 5 recommendations
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.now(timezone.utc).isoformat()
         }
         
         return dashboard_data
@@ -489,7 +489,7 @@ async def get_real_time_metrics(
         
         # Extract key real-time metrics
         real_time_metrics = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "date": today.isoformat(),
             "metrics": {}
         }

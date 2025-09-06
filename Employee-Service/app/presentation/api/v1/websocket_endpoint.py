@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import asyncio
 
@@ -37,7 +37,7 @@ async def websocket_notifications_endpoint(
         await websocket.send_text(json.dumps({
             "type": "connection_established",
             "user_id": user_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "message": "Real-time notifications connected"
         }))
         
@@ -52,7 +52,7 @@ async def websocket_notifications_endpoint(
                 if message.get("type") == "heartbeat":
                     await websocket.send_text(json.dumps({
                         "type": "heartbeat_response",
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.now(timezone.utc).isoformat()
                     }))
                 elif message.get("type") == "mark_notification_read":
                     # Handle notification read acknowledgment
@@ -65,7 +65,7 @@ async def websocket_notifications_endpoint(
                 # Send periodic ping to keep connection alive
                 await websocket.send_text(json.dumps({
                     "type": "ping",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }))
             
     except WebSocketDisconnect:

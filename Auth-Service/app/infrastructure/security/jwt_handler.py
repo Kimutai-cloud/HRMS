@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
 
@@ -106,7 +106,7 @@ class JWTHandler(TokenServiceInterface):
     
     def _create_token(self, data: Dict[str, Any], expires_delta: timedelta) -> str:
         to_encode = data.copy()
-        expire = datetime.utcnow() + expires_delta
-        to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+        expire = datetime.now(timezone.utc) + expires_delta
+        to_encode.update({"exp": expire, "iat":datetime.now(timezone.utc)})
         
         return jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)

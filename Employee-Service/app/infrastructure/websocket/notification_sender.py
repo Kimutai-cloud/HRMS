@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime , timezone
 
 from app.infrastructure.websocket.notification_websocket import websocket_manager
 from app.presentation.schema.websocket_schema import (
@@ -195,7 +195,7 @@ class RealTimeNotificationSender:
                 "message": message,
                 "notes": notes,
                 "progress_percentage": stage_progress.get(to_stage, 0),
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }
         )
         
@@ -267,7 +267,7 @@ class RealTimeNotificationSender:
                 "approved": approved,
                 "status": document.review_status.value,
                 "reviewer_notes": reviewer_notes,
-                "reviewed_at": datetime.utcnow().isoformat()
+                "reviewed_at": datetime.now(timezone.utc).isoformat()
             },
             user_id=employee.user_id
         )
@@ -341,7 +341,7 @@ class RealTimeNotificationSender:
                 "document_reviews": dashboard_data.get("document_reviews", {}),
                 "urgent_items": dashboard_data.get("urgent_items", {}),
                 "quick_stats": dashboard_data.get("quick_stats", {}),
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "message": "Dashboard statistics updated"
             }
         )

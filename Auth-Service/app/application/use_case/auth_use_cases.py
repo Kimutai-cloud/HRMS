@@ -1,6 +1,6 @@
 
 from uuid import uuid4, UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 from app.core.entities.user import User, AuthProvider, EmployeeProfileStatus
@@ -78,8 +78,8 @@ class AuthUseCase:
             is_verified=False,
             auth_provider=AuthProvider.EMAIL,
             employee_profile_status=EmployeeProfileStatus.NOT_STARTED,  # Default status
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         
         # Send verification email
@@ -190,8 +190,8 @@ class AuthUseCase:
                     is_verified=True,  # Google accounts are pre-verified
                     auth_provider=AuthProvider.GOOGLE,
                     employee_profile_status=EmployeeProfileStatus.NOT_STARTED,  # Still need employee profile
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
                 )
                 user = await self.user_repository.create(user)
                 
@@ -280,7 +280,7 @@ class AuthUseCase:
             return True  # Already verified
         
         user.is_verified = True
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         await self.user_repository.update(user)
         
         # Send welcome email (non-blocking)
@@ -345,7 +345,7 @@ class AuthUseCase:
             raise InvalidCredentialsException("Cannot reset password for this user")
         
         user.hashed_password = self.password_service.hash_password(request.new_password)
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         await self.user_repository.update(user)
         
         # Revoke all refresh tokens

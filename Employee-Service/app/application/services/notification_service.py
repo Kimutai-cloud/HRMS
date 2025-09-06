@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional, _Func
 from fastapi import APIRouter, Depends, Query
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
@@ -14,7 +14,7 @@ from app.core.interfaces.repositories import EmployeeRepositoryInterface
 from app.infrastructure.database.models import NotificationModel
 from app.infrastructure.database.connections import db_connection
 from app.config.settings import settings
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
 from app.application.services.email_template_service import email_template_service
@@ -404,7 +404,7 @@ class NotificationService:
         """Notify admins of reviews that are overdue."""
         
         # Get overdue reviews (>7 days)
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
         
         async with db_connection.async_session() as session:
             # Get pending employees older than 7 days
@@ -433,7 +433,7 @@ class NotificationService:
         """
         
         for emp in overdue_employees[:5]:  # Show first 5
-            days_pending = (datetime.utcnow() - emp.submitted_at).days
+            days_pending = (datetime.now(timezone.utc) - emp.submitted_at).days
             message += f"• {emp.get_full_name()} ({days_pending} days)\n"
         
         if len(overdue_employees) > 5:
@@ -476,7 +476,7 @@ class NotificationService:
                 "title": title,
                 "message": message,
                 "data": data or {},
-                "created_at": datetime.now(datetime.timezone.utc())
+                "created_at": datetime.now(datetime.timezone.utc)
             }
             
             result = await session.execute(
@@ -666,7 +666,7 @@ class NotificationService:
                     NotificationModel.id == notification_id,
                     NotificationModel.user_id == user_id
                 )
-                .values(read_at=datetime.now(datetime.timezone.utc()))
+                .values(read_at=datetime.now(datetime.timezone.utc))
             )
             await session.commit()
             
@@ -682,7 +682,7 @@ class NotificationService:
                     NotificationModel.user_id == user_id,
                     NotificationModel.read_at.is_(None)
                 )
-                .values(read_at=datetime.utcnow())
+                .values(read_at=datetime.now(timezone.utc))
             )
             await session.commit()
             

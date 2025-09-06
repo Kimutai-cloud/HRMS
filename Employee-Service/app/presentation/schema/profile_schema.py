@@ -1,6 +1,6 @@
 
 from pydantic import BaseModel, EmailStr, Field, validator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
@@ -29,7 +29,33 @@ class SubmitEmployeeProfileRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError('Department is required')
         return v.strip()
+
+
+class UpdateEmployeeDetailsRequest(BaseModel):
+    """Request schema for updating employee basic details by verified users."""
     
+    first_name: Optional[str] = Field(None, min_length=1, max_length=255, description="Employee's first name")
+    last_name: Optional[str] = Field(None, min_length=1, max_length=255, description="Employee's last name")
+    phone: Optional[str] = Field(None, max_length=50, description="Employee's phone number")
+    title: Optional[str] = Field(None, max_length=255, description="Employee's job title")
+    
+    @validator('first_name', 'last_name')
+    def validate_names(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Name cannot be empty')
+        return v.strip() if v else v
+    
+    @validator('phone')
+    def validate_phone(cls, v):
+        if v is not None and v.strip():
+            return v.strip()
+        return v
+    
+    @validator('title')
+    def validate_title(cls, v):
+        if v is not None and v.strip():
+            return v.strip()
+        return v
 
 
 class DocumentUploadRequest(BaseModel):

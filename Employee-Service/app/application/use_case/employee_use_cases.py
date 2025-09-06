@@ -1,5 +1,5 @@
 from uuid import uuid4, UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from app.core.entities.employee import Employee, EmploymentStatus
@@ -14,7 +14,9 @@ from app.domain.services import EmployeeDomainService, RoleBasedAccessControlSer
 from app.application.dto.employee_dto import (
     CreateEmployeeRequest,
     UpdateEmployeeRequest,
-    DeactivateEmployeeRequest,
+    DeactivateEmployeeRequest
+)
+from app.presentation.schema.employee_schema import (
     EmployeeResponse,
     EmployeeListResponse
 )
@@ -39,8 +41,13 @@ class EmployeeUseCase:
         """Create a new employee."""
         
         # Create employee entity
+        from app.core.entities.employee import VerificationStatus
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        
         employee = Employee(
             id=uuid4(),
+            user_id=None,  # Will be set when linked to user account
             first_name=request.first_name.strip(),
             last_name=request.last_name.strip(),
             email=request.email.lower().strip(),
@@ -49,11 +56,13 @@ class EmployeeUseCase:
             department=request.department.strip() if request.department else None,
             manager_id=request.manager_id,
             status=EmploymentStatus.ACTIVE,
-            hired_at=datetime.utcnow(),
+            employment_status=EmploymentStatus.ACTIVE,
+            verification_status=VerificationStatus.NOT_SUBMITTED,
+            hired_at=now,
             deactivated_at=None,
             deactivation_reason=None,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=now,
+            updated_at=now,
             version=1
         )
         
@@ -184,7 +193,7 @@ class EmployeeUseCase:
         for key, value in updates.items():
             setattr(current_employee, key, value)
         
-        current_employee.updated_at = datetime.utcnow()
+        current_employee.updated_at = datetime.now(timezone.utc)
         current_employee.version += 1
         
         # Save updated employee
@@ -221,7 +230,7 @@ class EmployeeUseCase:
         
         # Deactivate employee
         employee.deactivate(request.reason)
-        employee.updated_at = datetime.utcnow()
+        employee.updated_at = datetime.now(timezone.utc)
         employee.version += 1
         
         # Save deactivated employee
@@ -249,17 +258,46 @@ class EmployeeUseCase:
         
         return self._to_response(employee)
     
+    async def get_employee_by_user_id(self, user_id: UUID, requester_user_id: UUID = None) -> Optional[EmployeeResponse]:
+        """Get employee by user ID with optional permission check."""
+        
+        employee = await self.employee_repository.get_by_user_id(user_id)
+        if not employee:
+            return None
+        
+        # Check permissions (skip if requester is getting their own profile)
+        if requester_user_id and requester_user_id != user_id:
+            if not await self.rbac_service.can_view_employee(requester_user_id, employee.id):
+                raise EmployeePermissionException("Insufficient permissions to view this employee")
+        
+        return self._to_response(employee)
+    
     async def get_team_members(self, manager_user_id: UUID) -> List[EmployeeResponse]:
-        """Get all team members for a manager."""
+        """Get all team members for a manager or all employees for admin."""
+        
+        # Check if user is admin - admins can see all employees
+        if await self.rbac_service.is_admin(manager_user_id):
+            # Admin can see all active employees as their "team"
+            all_employees = await self.employee_repository.list_employees(
+                page=1,
+                size=1000,  # Get all employees for admin
+                status=None,
+                department=None,
+                manager_id=None,
+                search=None,
+                sort_by="first_name",
+                sort_order="asc"
+            )
+            return [self._to_response(emp) for emp in all_employees.employees]
+        
+        # Check if user is actually a manager
+        if not await self.rbac_service.is_manager(manager_user_id):
+            raise EmployeePermissionException("User is not a manager or admin")
         
         # Get manager's employee record
         manager_employee = await self.rbac_service._get_employee_by_user_id(manager_user_id)
         if not manager_employee:
             raise EmployeeNotFoundException("Manager employee record not found")
-        
-        # Check if user is actually a manager
-        if not await self.rbac_service.is_manager(manager_user_id):
-            raise EmployeePermissionException("User is not a manager")
         
         # Get team members
         team_members = await self.employee_repository.get_by_manager_id(manager_employee.id)
@@ -267,9 +305,10 @@ class EmployeeUseCase:
         return [self._to_response(emp) for emp in team_members]
     
     def _to_response(self, employee: Employee) -> EmployeeResponse:
-        """Convert employee entity to response DTO."""
+        """Convert employee entity to response schema."""
         return EmployeeResponse(
             id=employee.id,
+            user_id=employee.user_id,
             first_name=employee.first_name,
             last_name=employee.last_name,
             email=employee.email,
@@ -278,12 +317,20 @@ class EmployeeUseCase:
             department=employee.department,
             manager_id=employee.manager_id,
             status=employee.status,
+            employment_status=employee.employment_status,
+            verification_status=employee.verification_status,
             hired_at=employee.hired_at,
             deactivated_at=employee.deactivated_at,
             deactivation_reason=employee.deactivation_reason,
             created_at=employee.created_at,
             updated_at=employee.updated_at,
-            version=employee.version
+            version=employee.version,
+            submitted_at=employee.submitted_at,
+            final_approved_by=employee.final_approved_by,
+            final_approved_at=employee.final_approved_at,
+            rejection_reason=employee.rejection_reason,
+            rejected_by=employee.rejected_by,
+            rejected_at=employee.rejected_at
         )
 
 

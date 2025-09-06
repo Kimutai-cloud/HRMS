@@ -308,10 +308,8 @@ class AuditLogEntry(BaseModel):
 class AuditLogResponse(BaseModel):
     """Response for audit log queries."""
     entries: List[AuditLogEntry]
-    total: int
-    page: int
-    size: int
-    pages: int
+    total_count: int
+    has_more: bool
 
 
 class ComplianceReportRequest(BaseModel):

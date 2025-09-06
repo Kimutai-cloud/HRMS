@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import datetime
+from datetime import datetime, timezone
 import hashlib
 import io
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -19,6 +19,7 @@ from app.core.entities.user_claims import UserClaims
 from app.core.entities.document import DocumentType
 from app.presentation.schema.profile_schema import (
     SubmitEmployeeProfileRequest,
+    UpdateEmployeeDetailsRequest,
     EmployeeProfileResponse,
     ProfileVerificationStatusResponse,
     DocumentResponse,
@@ -32,8 +33,8 @@ from app.presentation.api.dependencies import (
     get_audit_repository,
     get_current_user_claims,
     require_profile_completion,
-    require_newcomer_access,
-    allow_newcomer_access,
+    require_newcomer_access_with_cors,
+    allow_newcomer_access_with_cors,
     get_request_context
 )
 from app.core.exceptions.employee_exceptions import (
@@ -74,12 +75,13 @@ async def submit_employee_profile(
                 "error": "SUBMISSION_NOT_ALLOWED",
                 "message": guidance,
                 "current_status": current_user.employee_profile_status,
-                "allowed_statuses": ["NOT_STARTED", "REJECTED"]
+                "allowed_statuses": ["NOT_STARTED", "REJECTED", "UNKNOWN"]
             }
         )
     
-    await _check_submission_rate_limit(current_user.user_id, request_context)
     try:
+        # Check rate limit only for valid submissions
+        await _check_submission_rate_limit(current_user.user_id, request_context)
         from app.application.dto.profile_dto import SubmitProfileRequest
         dto = SubmitProfileRequest(
             user_id=current_user.user_id,
@@ -134,7 +136,7 @@ async def submit_employee_profile(
 _submission_attempts = {}    
 async def _check_submission_rate_limit(user_id: UUID, request_context: dict):
         """Prevent spam submissions."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         user_key = str(user_id)
         
         if user_key in _submission_attempts:
@@ -153,7 +155,7 @@ async def _check_submission_rate_limit(user_id: UUID, request_context: dict):
 
 @router.get("/status", response_model=ProfileVerificationStatusResponse)
 async def get_profile_verification_status(
-    current_user: UserClaims = Depends(allow_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     profile_use_case: ProfileUseCase = Depends(get_profile_use_case)
 ):
     """
@@ -174,7 +176,7 @@ async def get_profile_verification_status(
 
 @router.get("/my-profile", response_model=EmployeeProfileResponse)
 async def get_my_profile(
-    current_user: UserClaims = Depends(allow_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     profile_use_case: ProfileUseCase = Depends(get_profile_use_case)
 ):
     """
@@ -204,7 +206,7 @@ async def upload_document(
     is_required: bool = Form(True),
     notes: Optional[str] = Form(None),
     file: UploadFile = File(...),
-    current_user: UserClaims = Depends(require_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     profile_use_case: ProfileUseCase = Depends(get_profile_use_case),
     document_use_case: DocumentUseCase = Depends(get_document_use_case),
     audit_repository: AuditRepository = Depends(get_audit_repository),
@@ -451,7 +453,7 @@ def _check_upload_eligibility(employee_profile, document_type: DocumentType) -> 
 
 @router.get("/documents", response_model=List[DocumentResponse])
 async def get_my_documents(
-    current_user: UserClaims = Depends(require_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     document_use_case: DocumentUseCase = Depends(get_document_use_case)
 ):
     """
@@ -459,8 +461,23 @@ async def get_my_documents(
     """
     
     try:
+        # Get employee_id from user_id first
+        from app.infrastructure.database.repositories.employee_repository import EmployeeRepository
+        from app.presentation.api.dependencies import get_db_session
+        
+        employee_id = None
+        async for session in get_db_session():
+            employee_repo = EmployeeRepository(session)
+            employee = await employee_repo.get_by_user_id(current_user.user_id)
+            if employee:
+                employee_id = employee.id
+            break
+        
+        if not employee_id:
+            return []  # No employee profile yet, so no documents
+            
         documents = await document_use_case.get_employee_documents(
-            employee_id=None,  # Will be resolved by user_id in use case
+            employee_id=employee_id,
             requester_user_id=current_user.user_id
         )
         
@@ -491,7 +508,7 @@ async def get_my_documents(
 @router.get("/documents/{document_id}/download")
 async def download_my_document(
     document_id: UUID,
-    current_user: UserClaims = Depends(require_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     document_use_case: DocumentUseCase = Depends(get_document_use_case)
 ):
     """
@@ -525,7 +542,7 @@ async def download_my_document(
 @router.delete("/documents/{document_id}", response_model=SuccessResponse)
 async def delete_document(
     document_id: UUID,
-    current_user: UserClaims = Depends(require_newcomer_access),
+    current_user: UserClaims = Depends(allow_newcomer_access_with_cors),
     document_use_case: DocumentUseCase = Depends(get_document_use_case),
     audit_repository: AuditRepository = Depends(get_audit_repository),
     request_context: dict = Depends(get_request_context)
@@ -666,6 +683,79 @@ async def resubmit_profile(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
+        )
+    except EmployeeValidationException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.patch("/update-details", response_model=EmployeeProfileResponse)
+async def update_employee_details(
+    request: UpdateEmployeeDetailsRequest,
+    current_user: UserClaims = Depends(get_current_user_claims),
+    profile_use_case: ProfileUseCase = Depends(get_profile_use_case),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    request_context: dict = Depends(get_request_context)
+):
+    """
+    Update employee basic details for verified users.
+    Only first_name, last_name, phone, and title can be updated.
+    Available to users with VERIFIED profile status only.
+    """
+    
+    try:
+        from app.application.dto.profile_dto import UpdateDetailsRequest
+        dto = UpdateDetailsRequest(
+            user_id=current_user.user_id,
+            first_name=request.first_name,
+            last_name=request.last_name,
+            phone=request.phone,
+            title=request.title
+        )
+        
+        # Get original profile for audit comparison
+        try:
+            original_profile = await profile_use_case.get_employee_profile_by_user_id(current_user.user_id)
+        except EmployeeNotFoundException:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employee profile not found"
+            )
+        
+        # Update employee details
+        updated_profile = await profile_use_case.update_employee_details(dto)
+        
+        # Create audit log for changes
+        changes = {}
+        if request.first_name is not None and request.first_name != original_profile.first_name:
+            changes["first_name"] = {"from": original_profile.first_name, "to": request.first_name}
+        if request.last_name is not None and request.last_name != original_profile.last_name:
+            changes["last_name"] = {"from": original_profile.last_name, "to": request.last_name}
+        if request.phone is not None and request.phone != original_profile.phone:
+            changes["phone"] = {"from": original_profile.phone, "to": request.phone}
+        if request.title is not None and request.title != original_profile.title:
+            changes["title"] = {"from": original_profile.title, "to": request.title}
+        
+        # Log audit only if there were actual changes
+        if changes:
+            await audit_repository.log_action(
+                entity_type="employee",
+                entity_id=updated_profile.id,
+                action="PROFILE_DETAILS_UPDATED",
+                user_id=current_user.user_id,
+                changes=changes,
+                ip_address=request_context.get("ip_address"),
+                user_agent=request_context.get("user_agent")
+            )
+        
+        return updated_profile
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee profile not found"
         )
     except EmployeeValidationException as e:
         raise HTTPException(

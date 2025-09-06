@@ -36,6 +36,7 @@ class AuthServiceClient:
         self.timeout = 30.0
         self.max_retries = 3
         self.logger = logging.getLogger(__name__)
+        self.circuit_breaker = CircuitBreaker()  # Initialize circuit breaker
     
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for internal service authentication."""
@@ -47,21 +48,24 @@ class AuthServiceClient:
         }
     
     async def _make_request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, retries: int = 0) -> Optional[Dict[str, Any]]:
-
-        if self.circuit_breaker.is_open():
-            raise ServiceUnavailableException("Auth Service circuit breaker is open")
+        """Make HTTP request to Auth Service with retry logic."""
         
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(self.timeout, connect=10.0),
-            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
-        ) as client:
-            """Make HTTP request to Auth Service with retry logic."""
+        if self.circuit_breaker.state == CircuitState.OPEN:
+            if time.time() - self.circuit_breaker.last_failure_time > self.circuit_breaker.timeout:
+                self.circuit_breaker.state = CircuitState.HALF_OPEN
+            else:
+                raise ServiceUnavailableException("Auth Service circuit breaker is open")
         
         url = f"{self.base_url}/api/v1/internal{endpoint}"
         headers = self._get_headers()
         
+        self.logger.info(f"🔗 Making request to Auth Service: {method} {url}")
+        
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            ) as client:
                 if method.upper() == "GET":
                     response = await client.get(url, headers=headers)
                 elif method.upper() == "POST":
@@ -74,6 +78,10 @@ class AuthServiceClient:
                     raise ValueError(f"Unsupported HTTP method: {method}")
                 
                 if response.status_code == 200:
+                    # Reset circuit breaker on success
+                    self.circuit_breaker.failure_count = 0
+                    self.circuit_breaker.state = CircuitState.CLOSED
+                    
                     self.logger.info(f"✅ Auth Service call successful: {method} {endpoint}")
                     return response.json()
                 elif response.status_code == 404:
@@ -81,9 +89,15 @@ class AuthServiceClient:
                     return None
                 elif response.status_code in [401, 403]:
                     self.logger.error(f"❌ Auth Service authentication failed: {response.status_code}")
+                    self.logger.error(f"🔑 Service Name: {self.service_name}")
+                    self.logger.error(f"🔑 Token: {self.service_token[:10]}...")
+                    self.logger.error(f"📨 Headers: {headers}")
                     raise Exception(f"Authentication failed with Auth Service: {response.status_code}")
                 else:
                     self.logger.error(f"❌ Auth Service error: {response.status_code} - {response.text}")
+                    # Increment circuit breaker failure count
+                    self._handle_failure()
+                    
                     if retries < self.max_retries:
                         await self._exponential_backoff(retries)
                         return await self._make_request(method, endpoint, data, retries + 1)
@@ -91,6 +105,8 @@ class AuthServiceClient:
         
         except httpx.TimeoutException:
             self.logger.error(f"⏰ Auth Service timeout for {endpoint}")
+            self._handle_failure()
+            
             if retries < self.max_retries:
                 await self._exponential_backoff(retries)
                 return await self._make_request(method, endpoint, data, retries + 1)
@@ -98,6 +114,8 @@ class AuthServiceClient:
         
         except httpx.ConnectError:
             self.logger.error(f"🔌 Cannot connect to Auth Service at {self.base_url}")
+            self._handle_failure()
+            
             if retries < self.max_retries:
                 await self._exponential_backoff(retries)
                 return await self._make_request(method, endpoint, data, retries + 1)
@@ -105,10 +123,19 @@ class AuthServiceClient:
         
         except Exception as e:
             self.logger.error(f"❌ Unexpected error calling Auth Service: {e}")
+            self._handle_failure()
+            
             if retries < self.max_retries:
                 await self._exponential_backoff(retries)
                 return await self._make_request(method, endpoint, data, retries + 1)
             raise
+
+    def _handle_failure(self):
+        """Handle circuit breaker failure logic."""
+        self.circuit_breaker.failure_count += 1
+        if self.circuit_breaker.failure_count >= self.circuit_breaker.failure_threshold:
+            self.circuit_breaker.state = CircuitState.OPEN
+            self.circuit_breaker.last_failure_time = time.time()
     
     async def _exponential_backoff(self, retry_count: int):
         """Implement exponential backoff for retries."""

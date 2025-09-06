@@ -50,6 +50,9 @@ def setup_cors(app: FastAPI) -> None:
             "Access-Control-Request-Headers",    # Preflight headers specification
             "Origin",                    # Request origin identification
             "X-CSRFToken",              # CSRF protection if you add it later
+            "x-service-type",           # Service type header for API routing
+            "x-request-id",             # Request tracking
+            "x-api-version",            # API versioning
         ],
         
         # Optional: Expose additional headers to the frontend

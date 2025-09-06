@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID, uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import asyncio
 import smtplib
@@ -76,7 +76,7 @@ class EmailMessage:
     template_variables: Dict[str, Any] = field(default_factory=dict)
     priority: str = "normal"
     scheduled_at: Optional[datetime] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=datetime.now(timezone.utc))
 
 
 class EnhancedEmailService:
@@ -347,7 +347,7 @@ class EnhancedEmailService:
         await self._store_email_record(message, EmailStatus.PENDING)
         
         # Send immediately if not scheduled
-        if scheduled_at is None or scheduled_at <= datetime.utcnow():
+        if scheduled_at is None or scheduled_at <= datetime.now(timezone.utc):
             return await self._send_email_now(message)
         else:
             print(f"📧 Email scheduled for {scheduled_at}: {subject}")
@@ -488,7 +488,7 @@ class EnhancedEmailService:
                 message_id=str(message.id),
                 provider=EmailProvider.SMTP,
                 status=EmailStatus.SENT,
-                sent_at=datetime.utcnow()
+                sent_at=datetime.now(timezone.utc)
             )
             
         except Exception as e:
@@ -559,7 +559,7 @@ class EnhancedEmailService:
         return {
             "message_id": str(message_id),
             "status": "sent",
-            "sent_at": datetime.utcnow().isoformat(),
+            "sent_at": datetime.now(timezone.utc).isoformat(),
             "delivered_at": None,
             "opened_at": None,
             "clicked_at": None

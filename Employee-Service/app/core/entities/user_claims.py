@@ -11,7 +11,8 @@ class UserClaims:
     user_id: UUID
     email: str
     employee_profile_status: str
-    token_type: str
+    token_type: str = "access"
+    roles: Optional[list] = None
     issued_at: Optional[int] = None
     expires_at: Optional[int] = None
     audience: Optional[str] = None
@@ -29,11 +30,17 @@ class UserClaims:
     
     def is_pending_verification(self) -> bool:
         """Check if user profile is pending verification."""
-        return self.employee_profile_status == "PENDING_VERIFICATION"
+        return self.employee_profile_status in [
+            "PENDING_VERIFICATION",
+            "PENDING_DETAILS_REVIEW", 
+            "PENDING_DOCUMENTS_REVIEW",
+            "PENDING_ROLE_ASSIGNMENT",
+            "PENDING_FINAL_APPROVAL"
+        ]
     
     def needs_profile_completion(self) -> bool:
         """Check if user needs to complete their profile."""
-        return self.employee_profile_status == "NOT_STARTED"
+        return self.employee_profile_status in ["NOT_STARTED", "UNKNOWN"]
     
     def is_profile_rejected(self) -> bool:
         """Check if user profile was rejected."""
@@ -45,7 +52,7 @@ class UserClaims:
     
     def can_access_newcomer_endpoints(self) -> bool:
         """Check if user can access limited newcomer endpoints."""
-        return self.is_pending_verification() or self.is_verified_profile()
+        return self.needs_profile_completion() or self.is_pending_verification() or self.is_verified_profile()
     
     def should_redirect_to_profile_completion(self) -> bool:
         """Check if user should be redirected to profile completion."""
@@ -70,6 +77,7 @@ class UserClaims:
             "user_id": str(self.user_id),
             "email": self.email,
             "employee_profile_status": self.employee_profile_status,
+            "roles": self.roles or [],
             "access_level": self.get_access_level(),
             "can_access_system": self.can_access_standard_endpoints(),
             "needs_profile_completion": self.should_redirect_to_profile_completion(),

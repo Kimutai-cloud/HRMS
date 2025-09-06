@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Any
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
 import json
@@ -317,7 +317,7 @@ class EmailTemplateService:
             "advancement_message": advancement_messages.get(stage_key, f"Your profile has been advanced to {to_stage}"),
             "progress_percentage": stage_progress.get(to_stage, 0),
             "to_stage": to_stage,
-            "updated_at": datetime.utcnow().strftime("%B %d, %Y at %I:%M %p"),
+            "updated_at": datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p"),
             "notes": notes,
             "dashboard_url": f"/dashboard?employee_id={employee.id}"
         }
@@ -361,7 +361,7 @@ class EmailTemplateService:
             "employee_name": employee.get_full_name(),
             "rejection_reason": reason,
             "stage": stage,
-            "updated_at": datetime.utcnow().strftime("%B %d, %Y at %I:%M %p"),
+            "updated_at": datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p"),
             "dashboard_url": f"/dashboard?employee_id={employee.id}",
             "support_url": "/support"
         }
@@ -467,7 +467,7 @@ class EmailTemplateService:
             "failed_count": failed_count,
             "total_count": successful_count + failed_count,
             "performed_by": performed_by,
-            "completed_at": datetime.utcnow().strftime("%B %d, %Y at %I:%M %p"),
+            "completed_at": datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p"),
             "operation_details": operation_details or [],
             "admin_dashboard_url": "/admin/dashboard"
         }
@@ -481,8 +481,8 @@ class EmailTemplateService:
     
     async def get_delivery_statistics(self, days: int = 30) -> Dict[str, Any]:
         """Get email delivery statistics for the last N days."""
-        start_date = datetime.utcnow() - timedelta(days=days)
-        end_date = datetime.utcnow()
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+        end_date = datetime.now(timezone.utc)
         
         return await self.enhanced_email_service.get_delivery_statistics(start_date, end_date)
     

@@ -177,7 +177,4 @@ class RoleBasedAccessControlService:
     
     async def _get_employee_by_user_id(self, user_id: UUID) -> Optional[Employee]:
         """Helper to get employee record by user ID."""
-        # This would need to be implemented based on how you link users to employees
-        # Could be via email mapping or separate user_id field in Employee
-        # For now, returning None - implement based on your auth integration
-        return None
+        return await self.employee_repository.get_by_user_id(user_id)

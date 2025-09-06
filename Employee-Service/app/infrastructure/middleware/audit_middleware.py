@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Any, Optional
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import asyncio
 from fastapi import Request, Response
@@ -327,7 +327,7 @@ class AuditContextManager:
             user_id=self.user_id,
             correlation_id=str(uuid4()),
             additional_data={
-                "operation_start": datetime.utcnow().isoformat()
+                "operation_start": datetime.now(timezone.utc).isoformat()
             }
         )
         return self

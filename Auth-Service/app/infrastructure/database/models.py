@@ -17,8 +17,12 @@ class UserModel(Base):
     auth_provider = Column(SQLEnum('email', 'google', name='auth_provider'), nullable=False)
     employee_profile_status = Column(
         SQLEnum(
-            'NOT_STARTED', 
-            'PENDING_VERIFICATION', 
+            'NOT_STARTED',
+            'NOT_SUBMITTED',
+            'PENDING_DETAILS_REVIEW',
+            'PENDING_DOCUMENTS_REVIEW', 
+            'PENDING_ROLE_ASSIGNMENT',
+            'PENDING_FINAL_APPROVAL',
             'VERIFIED', 
             'REJECTED', 
             name='employee_profile_status'

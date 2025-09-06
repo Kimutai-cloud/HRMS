@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 from enum import Enum
@@ -11,9 +11,13 @@ class AuthProvider(str, Enum):
 
 
 class EmployeeProfileStatus(str, Enum):
-    """Employee profile completion and verification status."""
+    """Employee profile completion and verification status - synced with Employee-Service VerificationStatus."""
     NOT_STARTED = "NOT_STARTED"
-    PENDING_VERIFICATION = "PENDING_VERIFICATION"
+    NOT_SUBMITTED = "NOT_SUBMITTED"
+    PENDING_DETAILS_REVIEW = "PENDING_DETAILS_REVIEW"
+    PENDING_DOCUMENTS_REVIEW = "PENDING_DOCUMENTS_REVIEW"
+    PENDING_ROLE_ASSIGNMENT = "PENDING_ROLE_ASSIGNMENT"
+    PENDING_FINAL_APPROVAL = "PENDING_FINAL_APPROVAL"
     VERIFIED = "VERIFIED"
     REJECTED = "REJECTED"
 
@@ -65,4 +69,4 @@ class User:
     def update_employee_profile_status(self, status: EmployeeProfileStatus) -> None:
         """Update the employee profile status."""
         self.employee_profile_status = status
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)

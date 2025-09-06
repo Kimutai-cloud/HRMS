@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, or_, and_, text
 from sqlalchemy.orm import selectinload
@@ -27,6 +27,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             phone=employee.phone,
             title=employee.title,
             department=employee.department,
+            department_id=employee.department_id,
             manager_id=employee.manager_id,
             employment_status=employee.employment_status.value,  
             verification_status=employee.verification_status.value,
@@ -113,6 +114,7 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         db_employee.phone = employee.phone
         db_employee.title = employee.title
         db_employee.department = employee.department
+        db_employee.department_id = employee.department_id
         db_employee.manager_id = employee.manager_id
         db_employee.employment_status = employee.employment_status.value  
         db_employee.verification_status = employee.verification_status.value
@@ -148,8 +150,8 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         
         if db_employee:
             db_employee.employment_status = EmploymentStatus.INACTIVE.value  
-            db_employee.deactivated_at = datetime.utcnow()
-            db_employee.updated_at = datetime.utcnow()
+            db_employee.deactivated_at = datetime.now(timezone.utc)
+            db_employee.updated_at = datetime.now(timezone.utc)
             db_employee.version += 1
             
             await self.session.commit()
@@ -270,39 +272,30 @@ class EmployeeRepository(EmployeeRepositoryInterface):
         if not db_employee:
             return False
         
-        status_mapping = {
-            "NOT_STARTED": VerificationStatus.NOT_SUBMITTED,
-            "PENDING_VERIFICATION": VerificationStatus.PENDING_DETAILS_REVIEW, 
-            "VERIFIED": VerificationStatus.VERIFIED,
-            "REJECTED": VerificationStatus.REJECTED
-        }
-        
-        mapped_status = status_mapping.get(status)
-        if mapped_status:
-            db_employee.verification_status = mapped_status.value
+        # Validate that the status is a valid VerificationStatus
+        try:
+            verification_status = VerificationStatus(status)
+            db_employee.verification_status = verification_status.value
             db_employee.updated_at = func.now()
             await self.session.commit()
             return True
-        
-        return False
+        except ValueError:
+            # Invalid status value
+            return False
     
     async def get_employees_by_profile_status(self, status: str, limit: int = 100) -> List[Employee]:
         """Get employees by their profile status."""
         
-        status_mapping = {
-            "NOT_STARTED": VerificationStatus.NOT_SUBMITTED,
-            "PENDING_VERIFICATION": VerificationStatus.PENDING_DETAILS_REVIEW,
-            "VERIFIED": VerificationStatus.VERIFIED, 
-            "REJECTED": VerificationStatus.REJECTED
-        }
-        
-        mapped_status = status_mapping.get(status)
-        if not mapped_status:
+        # Validate that the status is a valid VerificationStatus
+        try:
+            verification_status = VerificationStatus(status)
+        except ValueError:
+            # Invalid status value
             return []
         
         result = await self.session.execute(
             select(EmployeeModel)
-            .where(EmployeeModel.verification_status == mapped_status.value)
+            .where(EmployeeModel.verification_status == verification_status.value)
             .limit(limit)
             .order_by(EmployeeModel.created_at.desc())
         )
@@ -340,6 +333,12 @@ class EmployeeRepository(EmployeeRepositoryInterface):
     
     def _to_entity(self, db_employee: EmployeeModel) -> Employee:
         """Convert database model to entity with proper field mapping."""
+        # First validate fields
+        self._validate_entity_fields(db_employee)
+        
+        # Handle version field safely
+        version = getattr(db_employee, 'version', 1)
+        
         return Employee(
             id=db_employee.id,
             user_id=db_employee.user_id,
@@ -349,7 +348,9 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             phone=db_employee.phone,
             title=db_employee.title,
             department=db_employee.department,
+            department_id=db_employee.department_id,
             manager_id=db_employee.manager_id,
+            status=EmploymentStatus(getattr(db_employee, 'status', db_employee.employment_status)),
             employment_status=EmploymentStatus(db_employee.employment_status), 
             verification_status=VerificationStatus(db_employee.verification_status),
             hired_at=db_employee.hired_at,
@@ -357,12 +358,11 @@ class EmployeeRepository(EmployeeRepositoryInterface):
             deactivation_reason=db_employee.deactivation_reason,
             created_at=db_employee.created_at,
             updated_at=db_employee.updated_at,
-            version=db_employee.version,
+            version=version,
             submitted_at=getattr(db_employee, 'submitted_at', None),
             final_approved_by=getattr(db_employee, 'final_approved_by', None),
             final_approved_at=getattr(db_employee, 'final_approved_at', None),
             rejection_reason=getattr(db_employee, 'rejection_reason', None),
             rejected_by=getattr(db_employee, 'rejected_by', None),
-            rejected_at=getattr(db_employee, 'rejected_at', None),
-            **self._validate_entity_fields(db_employee)
+            rejected_at=getattr(db_employee, 'rejected_at', None)
         )

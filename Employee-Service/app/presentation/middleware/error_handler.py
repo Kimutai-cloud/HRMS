@@ -66,22 +66,53 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTP exceptions."""
+    
+    # Handle both string and dict detail formats
+    if isinstance(exc.detail, dict):
+        # Extract message from dict detail or use the entire dict as structured error
+        message = exc.detail.get("message", "HTTP Error")
+        error_code = exc.detail.get("error", "HTTP_ERROR")
+        details = exc.detail if len(exc.detail) > 2 else None
+    else:
+        # Handle string detail (backward compatibility)
+        message = str(exc.detail)
+        error_code = "HTTP_ERROR"
+        details = None
+    
+    # Add CORS headers to error responses
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin and origin in ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
-            message=exc.detail,
-            error_code="HTTP_ERROR"
-        ).dict()
+            message=message,
+            error_code=error_code,
+            details=details
+        ).dict(),
+        headers=headers
     )
 
 
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle general exceptions."""
     logger.error(f"Unexpected error: {str(exc)}", exc_info=True)
+    
+    # Add CORS headers to error responses
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin and origin in ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    
     return JSONResponse(
         status_code=500,
         content=ErrorResponse(
             message="Internal server error",
             error_code="INTERNAL_ERROR"
-        ).dict()
+        ).dict(),
+        headers=headers
     )

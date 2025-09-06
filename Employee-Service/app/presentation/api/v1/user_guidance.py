@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.application.use_case.profile_use_cases import ProfileUseCase
 from app.presentation.api.dependencies import require_profile_completion, require_newcomer_access
@@ -15,7 +15,7 @@ from app.presentation.schema.guidance_schema import (
 from app.presentation.api.dependencies import (
     get_profile_use_case,
     get_employee_repository,
-    get_enhanced_permission_service
+    get_permission_service
 )
 
 router = APIRouter(prefix="/guidance", tags=["User Guidance"])
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/guidance", tags=["User Guidance"])
 async def get_user_guidance(
     user_claims: UserClaims = Depends(require_profile_completion),
     profile_use_case: ProfileUseCase = Depends(get_profile_use_case),
-    permission_service = Depends(get_enhanced_permission_service)
+    permission_service = Depends(get_permission_service)
 ):
     """Get comprehensive guidance for the current user."""
     

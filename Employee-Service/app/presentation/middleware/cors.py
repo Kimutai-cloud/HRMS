@@ -9,6 +9,9 @@ def setup_cors(app: FastAPI) -> None:
     if settings.DEBUG:
         print(f"🔧 Setting up CORS middleware")
         print(f"📍 Allowed origins: {settings.ALLOWED_ORIGINS}")
+
+
+
     
     app.add_middleware(
         CORSMiddleware,
@@ -23,23 +26,11 @@ def setup_cors(app: FastAPI) -> None:
             "PATCH",
             "HEAD",
         ],
-        allow_headers=[
-            "Accept",
-            "Accept-Language",
-            "Content-Language",
-            "Content-Type",
-            "Authorization",
-            "X-Requested-With",
-            "Access-Control-Request-Method",
-            "Access-Control-Request-Headers",
-            "Origin",
-            "If-Match",  # For optimistic concurrency
-            "X-CSRFToken",
-        ],
+        allow_headers=["*"],
         expose_headers=[
             "Content-Type",
             "Authorization",
-            "ETag",  # For optimistic concurrency
+            "ETag", 
         ],
         max_age=3600,
     )

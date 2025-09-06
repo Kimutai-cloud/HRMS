@@ -1,5 +1,5 @@
 from uuid import uuid4, UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from app.core.entities.role import Role, RoleAssignment, RoleCode
@@ -47,9 +47,13 @@ class RoleUseCase:
         if not role:
             raise RoleNotFoundException(f"Role {role_code} not found")
         
-        # Check if already assigned
+        # For non-NEWCOMER roles, revoke all existing roles first to ensure only one active role
+        if role_code != RoleCode.NEWCOMER:
+            await self.role_repository.revoke_all_user_roles(request.user_id, assigner_user_id)
+        
+        # Check if already assigned (after potential revocation)
         existing = await self.role_repository.get_role_assignment(request.user_id, role.id)
-        if existing:
+        if existing and existing.is_active:
             raise RoleAlreadyAssignedException(f"Role {role_code} already assigned to user")
         
         # Create assignment
@@ -58,7 +62,7 @@ class RoleUseCase:
             user_id=request.user_id,
             role_id=role.id,
             scope=request.scope or {},
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Save assignment

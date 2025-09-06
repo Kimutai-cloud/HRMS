@@ -1,0 +1,363 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
+from typing import List, Optional
+from uuid import UUID
+
+from app.application.use_case.task_comment_use_cases import TaskCommentUseCase
+from app.infrastructure.database.repositories.audit_repository import AuditRepository
+from app.core.entities.user_claims import UserClaims
+from app.presentation.schema.task_schema import (
+    TaskCommentResponse,
+    AddTaskCommentRequest,
+    UpdateTaskCommentRequest
+)
+from app.presentation.schema.common_schema import SuccessResponse
+from app.presentation.api.dependencies import (
+    get_task_comment_use_case,
+    get_audit_repository,
+    get_request_context,
+    get_current_user_claims,
+    require_verified_employee
+)
+from app.core.exceptions.employee_exceptions import (
+    EmployeeNotFoundException,
+    EmployeeValidationException,
+    EmployeePermissionException
+)
+from app.core.exceptions.role_exceptions import ForbiddenException
+
+router = APIRouter(prefix="/tasks/{task_id}/comments", tags=["Task Comments"])
+
+
+# Comment Management
+
+@router.get("", response_model=List[TaskCommentResponse])
+async def get_task_comments(
+    task_id: UUID = Path(..., description="Task ID"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of comments"),
+    offset: int = Query(0, ge=0, description="Number of comments to skip"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case)
+):
+    """
+    Get all comments for a specific task.
+    Verified employee only. User must have access to the task.
+    """
+    
+    try:
+        comments = await task_comment_use_case.get_task_comments(
+            task_id=task_id,
+            requester_user_id=current_user.user_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return comments
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found or access denied"
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+@router.post("", response_model=TaskCommentResponse)
+async def add_task_comment(
+    request: AddTaskCommentRequest,
+    task_id: UUID = Path(..., description="Task ID"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    request_context: dict = Depends(get_request_context)
+):
+    """
+    Add a comment to a task.
+    Verified employee only. User must have access to the task.
+    """
+    
+    try:
+        new_comment = await task_comment_use_case.add_comment(
+            task_id=task_id,
+            author_user_id=current_user.user_id,
+            comment_text=request.comment_text,
+            comment_type=request.comment_type
+        )
+        
+        # Audit log
+        await audit_repository.log_action(
+            entity_type="task_comment",
+            entity_id=new_comment["id"],
+            action="COMMENT_ADDED",
+            user_id=current_user.user_id,
+            changes={
+                "task_id": str(task_id),
+                "comment_type": request.comment_type,
+                "comment_length": len(request.comment_text)
+            },
+            ip_address=request_context.get("ip_address"),
+            user_agent=request_context.get("user_agent")
+        )
+        
+        return new_comment
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found or access denied"
+        )
+    except EmployeeValidationException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+@router.get("/{comment_id}", response_model=TaskCommentResponse)
+async def get_task_comment(
+    task_id: UUID = Path(..., description="Task ID"),
+    comment_id: UUID = Path(..., description="Comment ID"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case)
+):
+    """
+    Get a specific comment by ID.
+    Verified employee only. User must have access to the task.
+    """
+    
+    try:
+        comment = await task_comment_use_case.get_comment_by_id(
+            comment_id=comment_id,
+            task_id=task_id,  # Verify comment belongs to this task
+            requester_user_id=current_user.user_id
+        )
+        
+        return comment
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found or access denied"
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+@router.put("/{comment_id}", response_model=TaskCommentResponse)
+async def update_task_comment(
+    request: UpdateTaskCommentRequest,
+    task_id: UUID = Path(..., description="Task ID"),
+    comment_id: UUID = Path(..., description="Comment ID"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    request_context: dict = Depends(get_request_context)
+):
+    """
+    Update a comment. Only the author can update their own comments.
+    Verified employee only.
+    """
+    
+    try:
+        updated_comment = await task_comment_use_case.update_comment(
+            comment_id=comment_id,
+            task_id=task_id,  # Verify comment belongs to this task
+            author_user_id=current_user.user_id,
+            comment_text=request.comment_text
+        )
+        
+        # Audit log
+        await audit_repository.log_action(
+            entity_type="task_comment",
+            entity_id=comment_id,
+            action="COMMENT_UPDATED",
+            user_id=current_user.user_id,
+            changes={
+                "task_id": str(task_id),
+                "new_comment_length": len(request.comment_text)
+            },
+            ip_address=request_context.get("ip_address"),
+            user_agent=request_context.get("user_agent")
+        )
+        
+        return updated_comment
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found or access denied"
+        )
+    except EmployeeValidationException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own comments"
+        )
+
+
+@router.delete("/{comment_id}", response_model=SuccessResponse)
+async def delete_task_comment(
+    task_id: UUID = Path(..., description="Task ID"),
+    comment_id: UUID = Path(..., description="Comment ID"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    request_context: dict = Depends(get_request_context)
+):
+    """
+    Delete a comment. Only the author can delete their own comments.
+    Verified employee only.
+    """
+    
+    try:
+        await task_comment_use_case.delete_comment(
+            comment_id=comment_id,
+            task_id=task_id,  # Verify comment belongs to this task
+            author_user_id=current_user.user_id
+        )
+        
+        # Audit log
+        await audit_repository.log_action(
+            entity_type="task_comment",
+            entity_id=comment_id,
+            action="COMMENT_DELETED",
+            user_id=current_user.user_id,
+            changes={
+                "task_id": str(task_id)
+            },
+            ip_address=request_context.get("ip_address"),
+            user_agent=request_context.get("user_agent")
+        )
+        
+        return SuccessResponse(message="Comment deleted successfully")
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found or access denied"
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own comments"
+        )
+
+
+# Comment Statistics and Analytics
+
+@router.get("/stats", response_model=dict)
+async def get_task_comment_stats(
+    task_id: UUID = Path(..., description="Task ID"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case)
+):
+    """
+    Get comment statistics for a task.
+    Verified employee only. User must have access to the task.
+    """
+    
+    try:
+        stats = await task_comment_use_case.get_comment_statistics(
+            task_id=task_id,
+            requester_user_id=current_user.user_id
+        )
+        
+        return stats
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found or access denied"
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+# Recent Comments (Alternative endpoint structure)
+
+@router.get("/recent", response_model=List[TaskCommentResponse])
+async def get_recent_task_comments(
+    task_id: UUID = Path(..., description="Task ID"),
+    limit: int = Query(10, ge=1, le=50, description="Maximum number of recent comments"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case)
+):
+    """
+    Get recent comments for a task.
+    Verified employee only. User must have access to the task.
+    """
+    
+    try:
+        recent_comments = await task_comment_use_case.get_recent_comments(
+            task_id=task_id,
+            requester_user_id=current_user.user_id,
+            limit=limit
+        )
+        
+        return recent_comments
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found or access denied"
+        )
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+# User-specific comment endpoints (separate router could be used for these)
+
+# Alternative router for user-specific comment operations
+user_comments_router = APIRouter(prefix="/user/task-comments", tags=["User Task Comments"])
+
+
+@user_comments_router.get("/my-comments", response_model=List[TaskCommentResponse])
+async def get_my_recent_comments(
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of recent comments"),
+    current_user: UserClaims = Depends(require_verified_employee),
+    task_comment_use_case: TaskCommentUseCase = Depends(get_task_comment_use_case)
+):
+    """
+    Get recent comments made by the current user across all tasks.
+    Verified employee only.
+    """
+    
+    try:
+        my_comments = await task_comment_use_case.get_user_recent_comments(
+            author_user_id=current_user.user_id,
+            limit=limit
+        )
+        
+        return my_comments
+        
+    except ForbiddenException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+# Include both routers when registering with the main app
+# The main router handles task-specific comments: /tasks/{task_id}/comments
+# The user router handles user-specific operations: /user/task-comments

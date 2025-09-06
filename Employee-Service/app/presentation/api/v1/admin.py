@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
+from datetime import datetime, timezone
 import io
 
 from app.application.services.notification_service import NotificationService
@@ -24,7 +25,9 @@ from app.presentation.schema.admin_schema import (
     BulkDocumentApprovalRequest,
     DocumentReviewRequest,
     DocumentReviewResponse,
-    BulkNotificationRequest
+    BulkNotificationRequest,
+    AuditLogResponse,
+    AuditLogEntry
 )
 from app.presentation.schema.common_schema import SuccessResponse
 from app.presentation.api.dependencies import (
@@ -33,7 +36,9 @@ from app.presentation.api.dependencies import (
     get_audit_repository,
     require_admin,
     get_request_context,
-    get_notification_service
+    get_notification_service,
+    get_employee_use_case,
+    get_employee_repository
 )
 from app.core.exceptions.employee_exceptions import (
     EmployeeNotFoundException,
@@ -238,6 +243,42 @@ async def get_employee_documents_for_review(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found"
+        )
+    except EmployeePermissionException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+@router.get("/documents/{document_id}/preview")
+async def preview_document(
+    document_id: UUID,
+    current_user: dict = Depends(require_admin),
+    document_use_case: DocumentUseCase = Depends(get_document_use_case)
+):
+    """
+    Preview document file for admin review.
+    Admin only.
+    """
+    
+    try:
+        content, filename, mime_type = await document_use_case.download_document(
+            document_id=document_id,
+            requester_user_id=current_user["user_id"]
+        )
+        
+        # For preview, use inline disposition instead of attachment
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=mime_type,
+            headers={"Content-Disposition": f"inline; filename={filename}"}
+        )
+        
+    except EmployeeNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found"
         )
     except EmployeePermissionException as e:
         raise HTTPException(
@@ -854,7 +895,8 @@ async def bulk_send_notifications(
                 )
                 success_count += 1
             except Exception as e:
-                print(f"⚠️ Failed to send notification to {user_id}: {e}")
+                # Log error for monitoring but continue processing other notifications
+                pass
         
         return SuccessResponse(
             message=f"Bulk notifications sent: {success_count}/{len(request.user_ids)} successful"
@@ -864,4 +906,103 @@ async def bulk_send_notifications(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Bulk notification failed: {str(e)}"
+        )
+
+
+# Audit Logs
+
+@router.get("/audit-logs", response_model=AuditLogResponse)
+async def get_audit_logs(
+    limit: int = Query(50, ge=1, le=500, description="Maximum number of audit log entries"),
+    offset: int = Query(0, ge=0, description="Number of entries to skip"),
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    entity_id: Optional[UUID] = Query(None, description="Filter by specific entity ID"),
+    action: Optional[str] = Query(None, description="Filter by action type"),
+    user_id: Optional[UUID] = Query(None, description="Filter by user who performed the action"),
+    current_user: dict = Depends(require_admin),
+    audit_repository: AuditRepository = Depends(get_audit_repository),
+    employee_repository = Depends(get_employee_repository)
+):
+    """
+    Get audit logs with filtering and pagination.
+    Admin only.
+    """
+    
+    try:
+        # Fetch audit logs based on filters
+        if user_id:
+            # Get user-specific actions
+            audit_logs = await audit_repository.get_user_actions(
+                user_id=user_id,
+                limit=limit
+            )
+        elif entity_id and entity_type:
+            # Get entity-specific audit trail
+            audit_logs = await audit_repository.get_entity_audit_trail(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                limit=limit
+            )
+        else:
+            # Get all audit logs with filtering
+            audit_logs = await audit_repository.get_all_audit_logs(
+                limit=limit,
+                offset=offset,
+                entity_type=entity_type,
+                action=action
+            )
+        
+        # Get total count for pagination
+        total_count = await audit_repository.get_audit_logs_count(
+            entity_type=entity_type,
+            action=action,
+            user_id=user_id
+        )
+        
+        # Get unique user IDs to fetch user names
+        user_ids = set()
+        for log in audit_logs:
+            if log.get('user_id'):
+                user_ids.add(log.get('user_id'))
+        
+        # Fetch user names
+        user_names = {}
+        for uid in user_ids:
+            try:
+                employee = await employee_repository.get_by_user_id(uid)
+                if employee:
+                    user_names[str(uid)] = f"{employee.first_name} {employee.last_name}"
+                else:
+                    user_names[str(uid)] = "Unknown User"
+            except:
+                user_names[str(uid)] = "Unknown User"
+        
+        # Convert to response format
+        entries = []
+        for log in audit_logs:
+            user_id_str = str(log.get('user_id', ''))
+            entry = AuditLogEntry(
+                id=UUID(str(log.get('id', uuid4()))),
+                timestamp=log.get('timestamp', datetime.now(timezone.utc)),
+                user_id=UUID(user_id_str) if user_id_str and user_id_str != 'None' else uuid4(),
+                user_name=user_names.get(user_id_str, "Unknown User"),
+                action=log.get('action', ''),
+                entity_type=log.get('entity_type', ''),
+                entity_id=UUID(str(log.get('entity_id', uuid4()))),
+                ip_address=log.get('ip_address', ''),
+                user_agent=log.get('user_agent', ''),
+                changes=log.get('changes', {})
+            )
+            entries.append(entry)
+        
+        return AuditLogResponse(
+            entries=entries,
+            total_count=total_count,
+            has_more=(offset + len(entries)) < total_count
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch audit logs: {str(e)}"
         )

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from typing import Dict, Any, Optional, List
 from uuid import UUID   
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from app.infrastructure.database.connections import db_connection
@@ -26,7 +26,7 @@ async def get_admin_analytics(
     """Get comprehensive analytics for admin dashboard."""
     
     # Calculate date range
-    end_date = datetime.now(datetime.timezone.utc())
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
     
     # Get verification metrics
@@ -47,7 +47,6 @@ async def get_admin_analytics(
     )
 
 
-@router.get("/verification-metrics", response_model=VerificationMetricsResponse)
 async def _get_verification_metrics(employee_repository, start_date: datetime, end_date: datetime) -> VerificationMetricsResponse:
     """Calculate actual verification process metrics."""
 
@@ -151,29 +150,6 @@ async def get_admin_workload(
 
 # Helper functions for analytics
 
-async def _get_verification_metrics(employee_repository, start_date: datetime, end_date: datetime) -> VerificationMetricsResponse:
-    """Calculate verification process metrics."""
-    
-    # This would involve complex database queries
-    # For now, returning mock data structure
-    return VerificationMetricsResponse(
-        total_submissions=150,
-        completed_verifications=120,
-        pending_reviews=25,
-        rejected_profiles=5,
-        completion_rate=80.0,
-        average_processing_days=3.5,
-        stage_metrics={
-            "details_review": {"avg_time_hours": 8, "pending_count": 5},
-            "documents_review": {"avg_time_hours": 16, "pending_count": 10},
-            "role_assignment": {"avg_time_hours": 4, "pending_count": 6},
-            "final_approval": {"avg_time_hours": 2, "pending_count": 4}
-        },
-        daily_trends=[
-            {"date": "2024-01-01", "submissions": 5, "completions": 4},
-            {"date": "2024-01-02", "submissions": 8, "completions": 6}
-        ]
-    )
 
 
 async def _get_admin_workload(employee_repository) -> AdminWorkloadResponse:

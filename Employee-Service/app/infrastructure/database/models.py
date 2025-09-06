@@ -1,10 +1,28 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Enum as SQLEnum, UUID, Integer, JSON, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Enum as SQLEnum, UUID, Integer, JSON, ForeignKey, DECIMAL
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 
 Base = declarative_base()
+
+class DepartmentModel(Base):
+    __tablename__ = "departments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    manager_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by = Column(UUID(as_uuid=True), nullable=False)
+    
+    manager = relationship("EmployeeModel", foreign_keys=[manager_id], backref="managed_departments")
+    
+    __table_args__ = (
+        {'extend_existing': True}
+    )
 
 class EmployeeModel(Base):
     __tablename__ = "employees"
@@ -16,8 +34,15 @@ class EmployeeModel(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     phone = Column(String(50), nullable=True)
     title = Column(String(255), nullable=True)
-    department = Column(String(255), nullable=True)
+    department = Column(String(255), nullable=True)  # Keep for backward compatibility
+    department_id = Column(UUID(as_uuid=True), ForeignKey('departments.id'), nullable=True, index=True)
     manager_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=True, index=True)
+    
+    status = Column(
+        SQLEnum('ACTIVE', 'INACTIVE', name='employment_status'), 
+        nullable=False, 
+        default='ACTIVE'
+    )
     
     employment_status = Column(
         SQLEnum('ACTIVE', 'INACTIVE', name='employment_status'), 
@@ -41,13 +66,7 @@ class EmployeeModel(Base):
     deactivation_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    version = Column(SQLEnum('ORIGINAL', 'REVISION_1', 'REVISION_2', 'REVISION_3', name='document_version'), nullable=False, default='ORIGINAL')
-    parent_document_id = Column(UUID(as_uuid=True), ForeignKey('employee_documents.id'), nullable=True)
-    version_notes = Column(Text, nullable=True)
-    superseded_at = Column(DateTime(timezone=True), nullable=True)
-    is_current = Column(Boolean, nullable=False, default=True)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-    expiry_reminder_sent = Column(Boolean, nullable=False, default=False)
+    version = Column(Integer, nullable=False, default=1)
     
     submitted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     details_reviewed_by = Column(UUID(as_uuid=True), nullable=True)
@@ -65,6 +84,7 @@ class EmployeeModel(Base):
     rejected_at = Column(DateTime(timezone=True), nullable=True)
     
     manager = relationship("EmployeeModel", remote_side=[id], backref="direct_reports")
+    department_ref = relationship("DepartmentModel", foreign_keys=[department_id], backref="employees")
     
     __table_args__ = (
         {'extend_existing': True}
@@ -170,7 +190,7 @@ class EmployeeDocumentModel(Base):
     is_required = Column(Boolean, nullable=False, default=True)
     display_order = Column(Integer, nullable=False, default=0)
     
-    employee = relationship("EmployeeModel", backref="documents")
+    employee = relationship("EmployeeModel", foreign_keys=[employee_id], backref="documents")
 
 
 class ApprovalStageModel(Base):
@@ -226,3 +246,137 @@ class NotificationModel(Base):
     
     email_sent = Column(Boolean, nullable=False, default=False)
     email_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# Task Management Models
+
+class TaskModel(Base):
+    __tablename__ = "tasks"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    task_type = Column(
+        SQLEnum('PROJECT', 'TASK', 'SUBTASK', name='task_type_enum'),
+        nullable=False,
+        default='TASK'
+    )
+    priority = Column(
+        SQLEnum('LOW', 'MEDIUM', 'HIGH', 'URGENT', name='priority_enum'),
+        nullable=False,
+        default='MEDIUM'
+    )
+    status = Column(
+        SQLEnum(
+            'DRAFT', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 
+            'IN_REVIEW', 'COMPLETED', 'CANCELLED', 
+            name='task_status_enum'
+        ),
+        nullable=False,
+        default='DRAFT'
+    )
+    
+    # Relationships
+    assignee_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=True, index=True)
+    assigner_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=False, index=True)
+    department_id = Column(UUID(as_uuid=True), ForeignKey('departments.id'), nullable=True, index=True)
+    parent_task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'), nullable=True, index=True)
+    
+    # Progress & Effort
+    progress_percentage = Column(Integer, default=0, nullable=False)
+    estimated_hours = Column(DECIMAL(5,2), nullable=True)
+    actual_hours = Column(DECIMAL(5,2), nullable=True)
+    
+    # Timeline
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    assigned_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now())
+    
+    # Additional Data
+    tags = Column(JSON, default=list, nullable=False)
+    attachments = Column(JSON, default=list, nullable=False)
+    review_notes = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    approval_notes = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    
+    # Relationships
+    assignee = relationship("EmployeeModel", foreign_keys=[assignee_id], backref="assigned_tasks")
+    assigner = relationship("EmployeeModel", foreign_keys=[assigner_id], backref="created_tasks")
+    department = relationship("DepartmentModel", backref="tasks")
+    parent_task = relationship("TaskModel", remote_side=[id], backref="subtasks")
+    
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+
+
+class TaskCommentModel(Base):
+    __tablename__ = "task_comments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'), nullable=False, index=True)
+    author_id = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=False, index=True)
+    comment = Column(Text, nullable=False)
+    comment_type = Column(
+        SQLEnum('COMMENT', 'STATUS_CHANGE', 'PROGRESS_UPDATE', 'REVIEW_NOTE', name='comment_type_enum'),
+        default='COMMENT',
+        nullable=False
+    )
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    task = relationship("TaskModel", backref="comments")
+    author = relationship("EmployeeModel", backref="task_comments")
+    
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+
+
+class TaskActivityModel(Base):
+    __tablename__ = "task_activities"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(UUID(as_uuid=True), ForeignKey('tasks.id'), nullable=False, index=True)
+    performed_by = Column(UUID(as_uuid=True), ForeignKey('employees.id'), nullable=False, index=True)
+    action = Column(
+        SQLEnum(
+            'CREATED', 'ASSIGNED', 'STARTED', 'UPDATED', 'SUBMITTED',
+            'REVIEWED', 'APPROVED', 'REJECTED', 'CANCELLED', 'COMMENTED',
+            name='task_action_enum'
+        ),
+        nullable=False
+    )
+    previous_status = Column(
+        SQLEnum(
+            'DRAFT', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 
+            'IN_REVIEW', 'COMPLETED', 'CANCELLED', 
+            name='task_status_enum'
+        ),
+        nullable=True
+    )
+    new_status = Column(
+        SQLEnum(
+            'DRAFT', 'ASSIGNED', 'IN_PROGRESS', 'SUBMITTED', 
+            'IN_REVIEW', 'COMPLETED', 'CANCELLED', 
+            name='task_status_enum'
+        ),
+        nullable=True
+    )
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    
+    # Relationships
+    task = relationship("TaskModel", backref="activities")
+    performer = relationship("EmployeeModel", backref="task_activities")
+    
+    __table_args__ = (
+        {'extend_existing': True}
+    )

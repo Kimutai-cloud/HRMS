@@ -9,7 +9,7 @@ import aiofiles
 import os
 
 from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus
-from app.core.interfaces.repositories import DocumentRepositoryInterface  # FIXED IMPORT
+from app.core.interfaces.repositories import DocumentRepositoryInterface  
 from app.infrastructure.database.models import EmployeeDocumentModel
 from app.config.settings import settings
 

@@ -21,6 +21,17 @@ class SubmitProfileRequest:
 
 
 @dataclass
+class UpdateDetailsRequest:
+    """DTO for updating employee basic details."""
+    
+    user_id: UUID
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None  
+    phone: Optional[str] = None
+    title: Optional[str] = None
+
+
+@dataclass
 class DocumentUploadRequest:
     """DTO for document upload."""
     

@@ -1,104 +1,64 @@
-import React from 'react';
-import { Loader2 } from 'lucide-react';
+import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
+import { cva, type VariantProps } from "class-variance-authority"
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
-  loading?: boolean;
-  children: React.ReactNode;
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        primary: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
+  loading?: boolean
 }
 
-const Button: React.FC<ButtonProps> = ({
-  variant = 'primary',
-  size = 'md',
-  loading = false,
-  children,
-  className = '',
-  disabled,
-  ...props
-}) => {
-  const baseClasses = `
-    inline-flex items-center justify-center font-semibold rounded-xl 
-    transition-all duration-300 focus:outline-none focus:ring-4 
-    disabled:opacity-60 disabled:cursor-not-allowed
-    relative overflow-hidden group
-    text-white font-medium shadow-lg
-    hover:shadow-xl hover:-translate-y-1 hover:scale-105
-  `;
-  
-  const variantClasses = {
-    primary: `
-      bg-gradient-to-r from-blue-600 to-blue-700 
-      hover:from-blue-700 hover:to-blue-800 
-      focus:ring-blue-500/30
-      shadow-blue-500/25
-      hover:shadow-blue-600/40
-    `,
-    secondary: `
-      bg-gradient-to-r from-teal-600 to-teal-700 
-      hover:from-teal-700 hover:to-teal-800 
-      focus:ring-teal-500/30
-      shadow-teal-500/25
-      hover:shadow-teal-600/40
-    `,
-    success: `
-      bg-gradient-to-r from-green-600 to-green-700 
-      hover:from-green-700 hover:to-green-800 
-      focus:ring-green-500/30
-      shadow-green-500/25
-      hover:shadow-green-600/40
-    `,
-    warning: `
-      bg-gradient-to-r from-orange-600 to-orange-700 
-      hover:from-orange-700 hover:to-orange-800 
-      focus:ring-orange-500/30
-      shadow-orange-500/25
-      hover:shadow-orange-600/40
-    `,
-    error: `
-      bg-gradient-to-r from-red-600 to-red-700 
-      hover:from-red-700 hover:to-red-800 
-      focus:ring-red-500/30
-      shadow-red-500/25
-      hover:shadow-red-600/40
-    `,
-    outline: `
-      bg-white/90 backdrop-blur-sm border-2 border-blue-600 
-      text-blue-600 hover:bg-blue-600 hover:text-white 
-      focus:ring-blue-500/30
-      shadow-blue-500/10
-      hover:shadow-blue-600/25
-    `
-  };
-
-  const sizeClasses = {
-    sm: 'px-4 py-2 text-sm',
-    md: 'px-6 py-3 text-base',
-    lg: 'px-8 py-4 text-lg'
-  };
-
-  const classes = `${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`;
-
-  return (
-    <button
-      className={classes}
-      disabled={disabled || loading}
-      {...props}
-    >
-      {/* Shimmer effect on hover */}
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 transform translate-x-[-100%] group-hover:translate-x-[200%] transition-transform duration-1000"></div>
-      </div>
-      
-      {/* Content */}
-      <div className="relative z-10 flex items-center space-x-2">
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, loading = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button"
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        disabled={loading || props.disabled}
+        {...props}
+      >
         {loading && (
-          <Loader2 className="w-5 h-5 animate-spin" />
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2" />
         )}
-        <span className="font-semibold">{children}</span>
-      </div>
-    </button>
-  );
-};
+        {props.children}
+      </Comp>
+    )
+  }
+)
+Button.displayName = "Button"
 
-export default Button;
+export { Button, buttonVariants }

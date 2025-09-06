@@ -1,6 +1,6 @@
 from typing import List
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, and_, or_, func, text, case, cast, asc, desc, null, not_
 
@@ -44,13 +44,13 @@ class EventRepository(EventRepositoryInterface):
         result = await self.session.execute(
             update(DomainEventModel)
             .where(DomainEventModel.id == event_id)
-            .values(published=True, published_at=datetime.utcnow())
+            .values(published=True, published_at=datetime.now(timezone.utc))
         )
         await self.session.commit()
         return result.rowcount > 0
     
     async def cleanup_published_events(self, older_than_days: int = 7) -> int:
-        cutoff_date = datetime.utcnow() - timedelta(days=older_than_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=older_than_days)
         
         result = await self.session.execute(
             delete(DomainEventModel)

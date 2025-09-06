@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone , timezone
 from typing import Optional
 from uuid import UUID
 from enum import Enum
@@ -55,15 +55,17 @@ class Employee:
     email: str
     phone: Optional[str]
     title: Optional[str]
-    department: Optional[str]
+    department: Optional[str]  # Keep for backward compatibility
+    department_id: Optional[UUID]
     manager_id: Optional[UUID]
+    status: EmploymentStatus
     employment_status: EmploymentStatus
     verification_status: VerificationStatus
-    hired_at: Optional[datetime]
-    deactivated_at: Optional[datetime]
-    deactivation_reason: Optional[str]
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
+    hired_at: Optional[datetime] = None
+    deactivated_at: Optional[datetime] = None
+    deactivation_reason: Optional[str] = None
     version: int = 1
     
     submitted_at: Optional[datetime] = None
@@ -75,10 +77,9 @@ class Employee:
     
     def __post_init__(self):
         if self.employment_status == EmploymentStatus.INACTIVE and not self.deactivated_at:
-            self.deactivated_at = datetime.now(datetime.timezone.utc)
+            self.deactivated_at = datetime.now(timezone.utc)
 
-        self._validate_required_fields()
-        self._normalize_fields()
+
     
     def is_active(self) -> bool:
         return self.employment_status == EmploymentStatus.ACTIVE
@@ -123,7 +124,7 @@ class Employee:
     def deactivate(self, reason: str) -> None:
         """Deactivate employee with reason."""
         self.employment_status = EmploymentStatus.INACTIVE
-        self.deactivated_at = datetime.utcnow()
+        self.deactivated_at = datetime.now(timezone.utc)
         self.deactivation_reason = reason
     
     def reactivate(self) -> None:
@@ -138,8 +139,8 @@ class Employee:
             raise ValueError(f"Cannot submit profile with status {self.verification_status}")
         
         self.verification_status = VerificationStatus.PENDING_DETAILS_REVIEW
-        self.submitted_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.submitted_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
         self.version += 1
         
         self.rejection_reason = None
@@ -152,7 +153,7 @@ class Employee:
             raise ValueError(f"Cannot advance from status {self.verification_status}")
         
         self.verification_status = new_status
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
         self.version += 1
     
     def reject_verification(self, reason: str, rejected_by: UUID) -> None:
@@ -163,8 +164,8 @@ class Employee:
         self.verification_status = VerificationStatus.REJECTED
         self.rejection_reason = reason
         self.rejected_by = rejected_by
-        self.rejected_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.rejected_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
         self.version += 1
     
     def final_approve(self, approved_by: UUID) -> None:
@@ -174,6 +175,6 @@ class Employee:
         
         self.verification_status = VerificationStatus.VERIFIED
         self.final_approved_by = approved_by
-        self.final_approved_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.final_approved_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
         self.version += 1

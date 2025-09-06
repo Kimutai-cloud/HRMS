@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any, Tuple
 from uuid import UUID, uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +89,7 @@ class AuditRepository:
             },
             "changes": changes or {},
             "error_details": error_details,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         # Add performance metrics if provided
@@ -155,7 +155,7 @@ class AuditRepository:
             "admin_reasoning": reasoning,
             "action_details": changes,
             "review_decision": action,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         return await self.log_comprehensive_action(
@@ -267,7 +267,7 @@ class AuditRepository:
             "current_value": current_value,
             "threshold_value": threshold_value,
             "breach_percentage": ((current_value - threshold_value) / threshold_value) * 100,
-            "breach_detected_at": datetime.utcnow().isoformat()
+            "breach_detected_at": datetime.now(timezone.utc).isoformat()
         }
         
         return await self.log_comprehensive_action(
@@ -387,7 +387,7 @@ class AuditRepository:
     async def cleanup_old_logs(self, older_than_days: int = 365) -> int:
         """Clean up audit logs older than specified days."""
         
-        cutoff_date = datetime.utcnow() - timedelta(days=older_than_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=older_than_days)
         
         result = await self.session.execute(
             select(func.count(AuditLogModel.id))
@@ -403,3 +403,88 @@ class AuditRepository:
             await self.session.commit()
         
         return count
+    
+    async def get_all_audit_logs(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        entity_type: Optional[str] = None,
+        action: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all audit logs with optional filtering."""
+        
+        conditions = []
+        
+        if entity_type:
+            conditions.append(AuditLogModel.entity_type == entity_type)
+        
+        if action:
+            conditions.append(AuditLogModel.action.ilike(f"%{action}%"))
+        
+        if start_date:
+            conditions.append(AuditLogModel.timestamp >= start_date)
+        
+        if end_date:
+            conditions.append(AuditLogModel.timestamp <= end_date)
+        
+        query = select(AuditLogModel)
+        
+        if conditions:
+            query = query.where(and_(*conditions))
+        
+        query = query.order_by(AuditLogModel.timestamp.desc()).offset(offset).limit(limit)
+        
+        result = await self.session.execute(query)
+        audit_logs = result.scalars().all()
+        
+        return [
+            {
+                "id": log.id,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+                "action": log.action,
+                "user_id": log.user_id,
+                "changes": log.changes,
+                "timestamp": log.timestamp,
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent
+            }
+            for log in audit_logs
+        ]
+    
+    async def get_audit_logs_count(
+        self,
+        entity_type: Optional[str] = None,
+        action: Optional[str] = None,
+        user_id: Optional[UUID] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> int:
+        """Get total count of audit logs matching filters."""
+        
+        conditions = []
+        
+        if entity_type:
+            conditions.append(AuditLogModel.entity_type == entity_type)
+        
+        if action:
+            conditions.append(AuditLogModel.action.ilike(f"%{action}%"))
+            
+        if user_id:
+            conditions.append(AuditLogModel.user_id == user_id)
+        
+        if start_date:
+            conditions.append(AuditLogModel.timestamp >= start_date)
+        
+        if end_date:
+            conditions.append(AuditLogModel.timestamp <= end_date)
+        
+        query = select(func.count(AuditLogModel.id))
+        
+        if conditions:
+            query = query.where(and_(*conditions))
+        
+        result = await self.session.execute(query)
+        return result.scalar() or 0

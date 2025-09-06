@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from app.core.entities.employee import EmploymentStatus
+from app.core.entities.employee import EmploymentStatus, VerificationStatus
 
 
 class CreateEmployeeRequest(BaseModel):
@@ -54,6 +54,7 @@ class DeactivateEmployeeRequest(BaseModel):
 
 class EmployeeResponse(BaseModel):
     id: UUID
+    user_id: Optional[UUID] = None
     first_name: str
     last_name: str
     email: str
@@ -62,12 +63,22 @@ class EmployeeResponse(BaseModel):
     department: Optional[str]
     manager_id: Optional[UUID]
     status: EmploymentStatus
+    employment_status: EmploymentStatus
+    verification_status: VerificationStatus
     hired_at: Optional[datetime]
     deactivated_at: Optional[datetime]
     deactivation_reason: Optional[str]
     created_at: datetime
     updated_at: datetime
     version: int
+    
+    # Verification fields
+    submitted_at: Optional[datetime] = None
+    final_approved_by: Optional[UUID] = None
+    final_approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    rejected_by: Optional[UUID] = None
+    rejected_at: Optional[datetime] = None
     
     
 

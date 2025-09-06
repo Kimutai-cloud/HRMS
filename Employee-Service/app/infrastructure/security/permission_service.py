@@ -68,6 +68,9 @@ class PermissionService(PermissionServiceInterface):
                 PermissionType.UPDATE_OWN_PROFILE,
                 PermissionType.SUBMIT_PROFILE,
                 PermissionType.RESUBMIT_PROFILE,
+                PermissionType.VIEW_OWN_DOCUMENTS,
+                PermissionType.DELETE_OWN_DOCUMENTS,
+                PermissionType.RESUBMIT_PROFILE,
             ],
             AccessLevel.NEWCOMER: [
                 PermissionType.VIEW_OWN_PROFILE,
@@ -167,16 +170,7 @@ class PermissionService(PermissionServiceInterface):
     
     async def _get_employee_by_user_id(self, user_id: UUID) -> Optional[any]:
         """Get employee record by user ID."""
-        # This is a simplified implementation
-        # In real implementation, you'd need a mapping between user_id and employee
-        # Options:
-        # 1. Add user_id field to Employee model
-        # 2. Map by email (get user email from auth service, find employee by email)
-        # 3. Separate user-employee mapping table
-        
-        # For now, returning None - implement based on your auth integration strategy
-        # You might want to call the Auth Service to get user email, then find employee by email
-        return None
+        return await self.employee_repository.get_by_user_id(user_id)
     
 
     

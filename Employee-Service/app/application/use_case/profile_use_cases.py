@@ -1,5 +1,5 @@
 from uuid import uuid4, UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import asyncio
 from contextlib import asynccontextmanager
@@ -21,6 +21,7 @@ from app.infrastructure.external.auth_service_client import AuthServiceClient
 from app.infrastructure.websocket.notification_sender import RealTimeNotificationSender
 from app.application.dto.profile_dto import (
     SubmitProfileRequest,
+    UpdateDetailsRequest,
     DocumentUploadRequest,
     ProfileStatusResponse
 )
@@ -89,91 +90,6 @@ class ProfileUseCase:
                 print(f"❌ Profile creation failed, initiating rollback: {e}")
                 await self._rollback_partial_creation(request.user_id)
                 raise
-        
-        if request.manager_id:
-            manager = await self.employee_repository.get_by_id(request.manager_id)
-            if not manager or not manager.is_active():
-                raise EmployeeValidationException("Selected manager is not valid or active")
-            
-            if await self.employee_repository.check_circular_managership(
-                employee_id=uuid4(), 
-                manager_id=request.manager_id
-            ):
-                raise EmployeeValidationException("Manager assignment would create circular relationship")
-        
-        employee = Employee(
-            id=uuid4(),
-            user_id=request.user_id, 
-            first_name=request.first_name,
-            last_name=request.last_name,
-            email=request.email,
-            phone=request.phone,
-            title=request.title,
-            department=request.department,
-            manager_id=request.manager_id,
-            employment_status=EmploymentStatus.ACTIVE,
-            verification_status=VerificationStatus.PENDING_DETAILS_REVIEW,
-            hired_at=None,  
-            created_at=datetime.now(datetime.timezone.utc),
-            updated_at=datetime.now(datetime.timezone.utc),
-            version=1
-        )
-        
-        employee.submit_profile(request.user_id)
-        
-        try:
-            created_employee = await self.employee_repository.create(employee)
-            print(f"✅ Employee created in database: {created_employee.id}")
-        except Exception as e:
-            print(f"❌ Failed to create employee: {e}")
-            raise EmployeeValidationException(f"Failed to create employee profile: {str(e)}")
-        
-        try:
-            await self._assign_newcomer_role(request.user_id)
-            print(f"✅ NEWCOMER role assigned to user {request.user_id}")
-        except Exception as e:
-            print(f"⚠️  Warning: Failed to assign NEWCOMER role: {e}")
-        
-        try:
-            success = await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
-            if success:
-                print(f"✅ Auth Service status updated to PENDING_VERIFICATION")
-            else:
-                print(f"⚠️  Warning: Auth Service sync failed (non-critical)")
-        except Exception as e:
-            print(f"⚠️  Warning: Auth Service sync error (non-critical): {e}")
-
-        event = EmployeeCreatedEvent(
-            employee_id=created_employee.id,
-            employee_data={
-                "user_id": str(request.user_id),
-                "email": request.email,
-                "first_name": request.first_name,
-                "last_name": request.last_name,
-                "department": request.department,
-                "verification_status": created_employee.verification_status.value,
-                "submitted_at": created_employee.submitted_at.isoformat() if created_employee.submitted_at else None
-            }
-        )
-        await self.event_repository.save_event(event)
-        
-        # Send real-time WebSocket notifications
-        try:
-            # Notify user of successful submission
-            await RealTimeNotificationSender.send_profile_submission_confirmation(created_employee)
-            
-            # Alert admins of new submission
-            await RealTimeNotificationSender.send_admin_new_submission_alert(created_employee)
-            
-        except Exception as e:
-            print(f"⚠️ Real-time notifications failed (non-critical): {e}")
-        
-        print(f"🎉 Profile submission completed successfully!")
-        print(f"📋 Employee ID: {created_employee.id}")
-        print(f"👤 User ID: {request.user_id}")
-        print(f"🔄 Status: {created_employee.verification_status.value}")
-        
-        return await self._to_profile_response(created_employee)
     
     async def resubmit_employee_profile(self, request: SubmitProfileRequest) -> EmployeeProfileResponse:
         """Resubmit employee profile after rejection."""
@@ -212,7 +128,7 @@ class ProfileUseCase:
         employee.title = request.title
         employee.department = request.department
         employee.manager_id = request.manager_id
-        employee.updated_at = datetime.utcnow()
+        employee.updated_at = datetime.now(timezone.utc)
         employee.version += 1
         
         employee.submit_profile(request.user_id)
@@ -220,8 +136,10 @@ class ProfileUseCase:
         updated_employee = await self.employee_repository.update(employee)
         
         try:
-            await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
-            print(f"✅ Auth Service status updated after resubmission")
+            # Use actual verification status from the updated employee
+            actual_status = updated_employee.verification_status.value  
+            await self._sync_auth_service_status(request.user_id, actual_status)
+            print(f"✅ Auth Service status updated to {actual_status} after resubmission")
         except Exception as e:
             print(f"⚠️  Warning: Auth Service sync failed after resubmission: {e}")
         
@@ -276,7 +194,8 @@ class ProfileUseCase:
         """Handle submission when profile already exists."""
         
         if not existing.can_resubmit():
-            raise EmployeeAlreadyExistsException(
+            # Raise a validation exception instead of AlreadyExistsException for better error handling
+            raise EmployeeValidationException(
                 f"Profile already exists with status: {existing.verification_status.value}. "
                 f"Resubmission not allowed."
             )
@@ -331,25 +250,32 @@ class ProfileUseCase:
                 phone=request.phone,
                 title=request.title,
                 department=request.department,
+                department_id=None,  # System uses department name, not ID for now  
                 manager_id=request.manager_id,
-                employment_status=EmploymentStatus.ACTIVE,
-                verification_status=VerificationStatus.PENDING_DETAILS_REVIEW,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                status=EmploymentStatus.ACTIVE,  # Required status field
+                employment_status=EmploymentStatus.ACTIVE,  # Keep both for now
+                verification_status=VerificationStatus.NOT_SUBMITTED,  # Start with NOT_SUBMITTED
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
                 version=1
             )
             
+            # Now submit the profile, which will change status to PENDING_DETAILS_REVIEW
             employee.submit_profile(request.user_id)
             created_employee = await self.employee_repository.create(employee)
             print(f"✅ Employee created: {created_employee.id}")
             
-            role_assigned = await self._assign_newcomer_role_verified(request.user_id)
+            role_assigned = await self._assign_newcomer_role(request.user_id)
             if not role_assigned:
                 raise Exception("Failed to assign NEWCOMER role")
             
-            auth_synced = await self._sync_auth_service_status(request.user_id, "PENDING_VERIFICATION")
+            # Use actual verification status from the created employee
+            actual_status = created_employee.verification_status.value
+            auth_synced = await self._sync_auth_service_status(request.user_id, actual_status)
             if not auth_synced:
-                print("⚠️  Auth Service sync failed (non-critical)")
+                print(f"⚠️  Auth Service sync failed for status {actual_status} (non-critical)")
+            else:
+                print(f"✅ Auth Service synced to {actual_status}")
             
             event = EmployeeCreatedEvent(
                 employee_id=created_employee.id,
@@ -365,11 +291,9 @@ class ProfileUseCase:
             
         except Exception as e:
             if created_employee:
-                await self._rollback_employee_creation(created_employee.id)
+                await self._rollback_partial_creation(created_employee.id)
             if role_assigned:
                 await self._rollback_role_assignment(request.user_id)
-            if auth_synced:
-                await self._rollback_auth_sync(request.user_id)
             raise
 
     async def _rollback_partial_creation(self, user_id: UUID):
@@ -393,6 +317,60 @@ class ProfileUseCase:
             raise EmployeeNotFoundException("Employee profile not found")
         
         return await self._to_profile_response(employee)
+    
+    async def update_employee_details(self, request: UpdateDetailsRequest) -> EmployeeProfileResponse:
+        """Update employee basic details for verified users."""
+        
+        employee = await self.employee_repository.get_by_user_id(request.user_id)
+        if not employee:
+            raise EmployeeNotFoundException("Employee profile not found")
+        
+        # Only allow updates for verified employees
+        if employee.verification_status != VerificationStatus.VERIFIED:
+            raise EmployeeValidationException(
+                f"Profile details can only be updated by verified employees. "
+                f"Current status: {employee.verification_status.value}"
+            )
+        
+        # Track changes for audit
+        changes = {}
+        
+        # Update only provided fields
+        if request.first_name is not None:
+            if request.first_name != employee.first_name:
+                changes["first_name"] = {"from": employee.first_name, "to": request.first_name}
+                employee.first_name = request.first_name
+                
+        if request.last_name is not None:
+            if request.last_name != employee.last_name:
+                changes["last_name"] = {"from": employee.last_name, "to": request.last_name}
+                employee.last_name = request.last_name
+                
+        if request.phone is not None:
+            if request.phone != employee.phone:
+                changes["phone"] = {"from": employee.phone, "to": request.phone}
+                employee.phone = request.phone
+                
+        if request.title is not None:
+            if request.title != employee.title:
+                changes["title"] = {"from": employee.title, "to": request.title}
+                employee.title = request.title
+        
+        # If no changes were made, return current profile
+        if not changes:
+            return await self._to_profile_response(employee)
+        
+        # Update metadata
+        employee.updated_at = datetime.now(timezone.utc)
+        employee.version += 1
+        
+        # Save changes
+        updated_employee = await self.employee_repository.update(employee)
+        
+        print(f"✅ Employee details updated: {updated_employee.email}")
+        print(f"📝 Changes: {changes}")
+        
+        return await self._to_profile_response(updated_employee)
     
     async def get_profile_verification_status(self, user_id: UUID) -> ProfileVerificationStatusResponse:
         """Get detailed verification status for user's profile."""
@@ -459,7 +437,7 @@ class ProfileUseCase:
             file_path=request.file_path,
             file_size=request.file_size,
             mime_type=request.mime_type,
-            uploaded_at=datetime.utcnow(),
+            uploaded_at=datetime.now(timezone.utc),
             uploaded_by=request.uploaded_by,
             is_required=request.is_required,
             review_status=DocumentReviewStatus.PENDING
@@ -591,7 +569,7 @@ class ProfileUseCase:
                     user_id=user_id,
                     role_id=newcomer_role.id,
                     scope={},
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                     is_active=True
                 )
                 

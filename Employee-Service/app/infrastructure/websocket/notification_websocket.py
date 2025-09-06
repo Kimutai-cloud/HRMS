@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set
 from uuid import UUID
 import json
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 from app.core.entities.user_claims import UserClaims
@@ -51,7 +51,7 @@ class WebSocketConnectionManager:
         """Enhanced connection with session tracking."""
         await websocket.accept()
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         session = WebSocketSession(
             websocket=websocket,
             user_id=user_id,
@@ -135,7 +135,7 @@ class WebSocketConnectionManager:
             try:
                 await session.websocket.send_text(json.dumps(message, default=str))
                 # Update last heartbeat on successful send
-                session.last_heartbeat = datetime.utcnow()
+                session.last_heartbeat = datetime.now(timezone.utc)
             except Exception as e:
                 print(f"❌ Failed to send WebSocket message to session {session.session_id}: {e}")
                 disconnected_sessions.append(session.session_id)
@@ -173,7 +173,7 @@ class WebSocketConnectionManager:
     def update_heartbeat(self, session_id: str) -> bool:
         """Update heartbeat for a session."""
         if session_id in self.session_lookup:
-            self.session_lookup[session_id].last_heartbeat = datetime.utcnow()
+            self.session_lookup[session_id].last_heartbeat = datetime.now(timezone.utc)
             return True
         return False
     
@@ -207,7 +207,7 @@ class WebSocketConnectionManager:
     
     async def _cleanup_inactive_sessions(self):
         """Clean up sessions that haven't sent heartbeat in 5 minutes."""
-        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         inactive_sessions = []
         
         for session_id, session in self.session_lookup.items():

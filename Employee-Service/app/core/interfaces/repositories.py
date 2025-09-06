@@ -5,7 +5,9 @@ from uuid import UUID
 from app.core.entities.employee import Employee, EmploymentStatus
 from app.core.entities.role import Role, RoleAssignment, RoleCode
 from app.core.entities.events import DomainEvent
-from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus  
+from app.core.entities.document import EmployeeDocument, DocumentType, DocumentReviewStatus
+from app.core.entities.department import Department
+from app.core.entities.task import Task, TaskComment, TaskActivity, TaskStatus, Priority  
 
 
 class EmployeeRepositoryInterface(ABC):
@@ -205,4 +207,188 @@ class DocumentRepositoryInterface(ABC):
     @abstractmethod
     async def get_employee_document_summary(self, employee_id: UUID) -> Dict[str, Any]:
         """Get document summary for an employee."""
+        pass
+
+
+class DepartmentRepositoryInterface(ABC):
+    """Abstract interface for department repository."""
+    
+    @abstractmethod
+    async def create(self, department: Department) -> Department:
+        """Create a new department."""
+        pass
+    
+    @abstractmethod
+    async def get_by_id(self, department_id: UUID) -> Optional[Department]:
+        """Get department by ID."""
+        pass
+    
+    @abstractmethod
+    async def get_by_name(self, name: str) -> Optional[Department]:
+        """Get department by name."""
+        pass
+    
+    @abstractmethod
+    async def list_departments(self, include_inactive: bool = False) -> List[Department]:
+        """List all departments."""
+        pass
+    
+    @abstractmethod
+    async def update(self, department: Department) -> Department:
+        """Update department."""
+        pass
+    
+    @abstractmethod
+    async def delete(self, department_id: UUID) -> bool:
+        """Soft delete department."""
+        pass
+    
+    @abstractmethod
+    async def assign_manager(self, department_id: UUID, manager_id: UUID) -> bool:
+        """Assign manager to department."""
+        pass
+    
+    @abstractmethod
+    async def remove_manager(self, department_id: UUID) -> bool:
+        """Remove manager from department."""
+        pass
+    
+    @abstractmethod
+    async def get_managed_departments(self, manager_id: UUID) -> List[Department]:
+        """Get departments managed by a specific manager."""
+        pass
+    
+    @abstractmethod
+    async def get_department_employees(self, department_id: UUID) -> List[Employee]:
+        """Get all employees in a department."""
+        pass
+    
+    @abstractmethod
+    async def get_departments_with_stats(self) -> List[Dict[str, Any]]:
+        """Get departments with employee count statistics."""
+        pass
+
+
+# Task Management Repository Interfaces
+
+class TaskRepositoryInterface(ABC):
+    """Abstract interface for task repository."""
+    
+    @abstractmethod
+    async def create(self, task: Task) -> Task:
+        """Create a new task."""
+        pass
+    
+    @abstractmethod
+    async def get_by_id(self, task_id: UUID) -> Optional[Task]:
+        """Get task by ID."""
+        pass
+    
+    @abstractmethod
+    async def update(self, task: Task) -> Task:
+        """Update task."""
+        pass
+    
+    @abstractmethod
+    async def delete(self, task_id: UUID) -> bool:
+        """Delete task."""
+        pass
+    
+    @abstractmethod
+    async def get_tasks_by_assignee(self, assignee_id: UUID, status: Optional[TaskStatus] = None) -> List[Task]:
+        """Get tasks assigned to a specific employee."""
+        pass
+    
+    @abstractmethod
+    async def get_tasks_by_assigner(self, assigner_id: UUID, status: Optional[TaskStatus] = None) -> List[Task]:
+        """Get tasks created by a specific manager."""
+        pass
+    
+    @abstractmethod
+    async def get_tasks_by_department(self, department_id: UUID, status: Optional[TaskStatus] = None) -> List[Task]:
+        """Get tasks for a specific department."""
+        pass
+    
+    @abstractmethod
+    async def get_subtasks(self, parent_task_id: UUID) -> List[Task]:
+        """Get all subtasks of a parent task."""
+        pass
+    
+    @abstractmethod
+    async def search_tasks(self, 
+                          title_search: Optional[str] = None,
+                          assignee_id: Optional[UUID] = None,
+                          assigner_id: Optional[UUID] = None,
+                          department_id: Optional[UUID] = None,
+                          status: Optional[TaskStatus] = None,
+                          priority: Optional[Priority] = None,
+                          overdue_only: bool = False,
+                          limit: int = 50,
+                          offset: int = 0) -> List[Task]:
+        """Search tasks with various filters."""
+        pass
+    
+    @abstractmethod
+    async def count_tasks(self,
+                         title_search: Optional[str] = None,
+                         assignee_id: Optional[UUID] = None,
+                         assigner_id: Optional[UUID] = None,
+                         department_id: Optional[UUID] = None,
+                         status: Optional[TaskStatus] = None,
+                         priority: Optional[Priority] = None,
+                         overdue_only: bool = False) -> int:
+        """Count tasks matching filters for pagination."""
+        pass
+    
+    @abstractmethod
+    async def get_task_statistics(self, user_id: UUID, is_manager: bool = False) -> Dict[str, Any]:
+        """Get task statistics for a user."""
+        pass
+
+
+class TaskCommentRepositoryInterface(ABC):
+    """Abstract interface for task comment repository."""
+    
+    @abstractmethod
+    async def create(self, comment: TaskComment) -> TaskComment:
+        """Create a new task comment."""
+        pass
+    
+    @abstractmethod
+    async def get_by_id(self, comment_id: UUID) -> Optional[TaskComment]:
+        """Get comment by ID."""
+        pass
+    
+    @abstractmethod
+    async def get_by_task_id(self, task_id: UUID) -> List[TaskComment]:
+        """Get all comments for a task."""
+        pass
+    
+    @abstractmethod
+    async def update(self, comment: TaskComment) -> TaskComment:
+        """Update task comment."""
+        pass
+    
+    @abstractmethod
+    async def delete(self, comment_id: UUID) -> bool:
+        """Delete task comment."""
+        pass
+
+
+class TaskActivityRepositoryInterface(ABC):
+    """Abstract interface for task activity repository."""
+    
+    @abstractmethod
+    async def create(self, activity: TaskActivity) -> TaskActivity:
+        """Create a new task activity."""
+        pass
+    
+    @abstractmethod
+    async def get_by_task_id(self, task_id: UUID) -> List[TaskActivity]:
+        """Get all activities for a task."""
+        pass
+    
+    @abstractmethod
+    async def get_user_activities(self, user_id: UUID, limit: int = 50) -> List[TaskActivity]:
+        """Get recent activities performed by a user."""
         pass
